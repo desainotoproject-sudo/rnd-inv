@@ -14,6 +14,7 @@ import {
   History,
   ArrowLeftRight,
   Zap,
+  ScanLine,
 } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import {
@@ -49,6 +50,7 @@ const rndNavItems = [
   { to: "/locations", label: "Master Lokasi", icon: MapPin },
   { to: "/items", label: "Master Barang", icon: BoxesIcon },
   { to: "/quick-edit", label: "Edit Cepat", icon: Zap },
+  { to: "/scan", label: "Scan Barcode", icon: ScanLine },
   { to: "/stock", label: "Manajemen Stok", icon: BarChart3 },
   { to: "/approvals", label: "Approval", icon: Clock },
   { to: "/admin-loans", label: "Pinjam/Titip", icon: ArrowLeftRight },

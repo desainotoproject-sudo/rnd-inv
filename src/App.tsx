@@ -14,6 +14,7 @@ import ApprovalsPage from "@/pages/ApprovalsPage"
 import HistoryPage from "@/pages/HistoryPage"
 import AdminLoansPage from "@/pages/AdminLoansPage"
 import QuickEditPage from "@/pages/QuickEditPage"
+import ScanPage from "@/pages/ScanPage"
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
             <Route path="/approvals" element={<AuthGuard requireRole="rnd"><ApprovalsPage /></AuthGuard>} />
             <Route path="/admin-loans" element={<AuthGuard requireRole="rnd"><AdminLoansPage /></AuthGuard>} />
             <Route path="/quick-edit" element={<AuthGuard requireRole="rnd"><QuickEditPage /></AuthGuard>} />
+            <Route path="/scan" element={<AuthGuard requireRole="rnd"><ScanPage /></AuthGuard>} />
             {/* Shared routes (role-based filtering inside) */}
             <Route path="/history" element={<HistoryPage />} />
             {/* Guest routes */}
