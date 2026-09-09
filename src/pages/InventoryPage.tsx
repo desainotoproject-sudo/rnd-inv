@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useInfiniteRows } from "@/hooks/use-infinite-rows"
 import { Search, BoxesIcon, Filter, Info } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import type { StockEntry, Item, Location, Cabinet, StockStatus } from "@/lib/database.types"
@@ -67,6 +68,8 @@ export default function InventoryPage() {
       return matchSearch && matchStatus && matchType
     })
   }, [stocks, search, filterStatus, filterType])
+
+  const { shown, hasMore, sentinelRef } = useInfiniteRows(filtered, 15)
 
   return (
     <div className="space-y-6">
@@ -155,7 +158,7 @@ export default function InventoryPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((stock) => (
+              {shown.map((stock) => (
                 <TableRow key={stock.id}>
                   <TableCell>
                     <p className="font-medium text-sm text-foreground">{stock.item?.name}</p>
@@ -203,6 +206,18 @@ export default function InventoryPage() {
               ))}
             </TableBody>
           </Table>
+        )}
+        {!loading && filtered.length > 0 && (
+          <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+            {hasMore ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="size-3.5 animate-spin rounded-full border-2 border-current opacity-40 border-t-transparent" />
+                <span className="hidden sm:inline">Memuat…</span>
+              </span>
+            ) : (
+              <span className="hidden sm:inline">Semua {filtered.length} item</span>
+            )}
+          </div>
         )}
       </div>
 

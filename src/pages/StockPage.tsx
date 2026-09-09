@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useInfiniteRows } from "@/hooks/use-infinite-rows"
 import {
   Pencil,
   Trash2,
@@ -107,6 +108,8 @@ export default function StockPage() {
     })
   }, [stocks, search, filterStatus])
 
+  const { shown, hasMore, sentinelRef } = useInfiniteRows(filtered, 15)
+
   const openEdit = (s: StockWithRelations) => {
     setForm({
       quantity: s.quantity,
@@ -211,7 +214,7 @@ export default function StockPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((stock) => (
+              {shown.map((stock) => (
                 <TableRow key={stock.id}>
                   <TableCell>
                     <div>
@@ -273,6 +276,18 @@ export default function StockPage() {
               ))}
             </TableBody>
           </Table>
+        )}
+        {!loading && filtered.length > 0 && (
+          <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+            {hasMore ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="size-3.5 animate-spin rounded-full border-2 border-current opacity-40 border-t-transparent" />
+                <span className="hidden sm:inline">Memuat…</span>
+              </span>
+            ) : (
+              <span className="hidden sm:inline">Semua {filtered.length} catatan</span>
+            )}
+          </div>
         )}
       </div>
 

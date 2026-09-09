@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useInfiniteRows } from "@/hooks/use-infinite-rows"
 import {
   Plus,
   Pencil,
@@ -157,6 +158,8 @@ export default function ItemsPage() {
       return matchSearch && matchType
     })
   }, [items, search, filterType])
+
+  const { shown, hasMore, sentinelRef } = useInfiniteRows(filtered, 15)
 
   const openCreate = () => {
     setForm(emptyForm)
@@ -386,7 +389,7 @@ export default function ItemsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((item) => {
+              {shown.map((item) => {
                 const stock = stockMap.get(item.id)
                 return (
                 <TableRow key={item.id} className={selectedIds.has(item.id) ? "bg-muted/40" : ""}>
@@ -453,6 +456,18 @@ export default function ItemsPage() {
             }
             </TableBody>
           </Table>
+        )}
+        {!loading && filtered.length > 0 && (
+          <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+            {hasMore ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="size-3.5 animate-spin rounded-full border-2 border-current opacity-40 border-t-transparent" />
+                <span className="hidden sm:inline">Memuat…</span>
+              </span>
+            ) : (
+              <span className="hidden sm:inline">Semua {filtered.length} item</span>
+            )}
+          </div>
         )}
       </div>
 
