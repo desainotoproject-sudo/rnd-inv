@@ -9,7 +9,6 @@ import {
   QrCode,
   Camera,
   Keyboard,
-  MapPin,
   CheckCircle2,
   AlertTriangle,
   Save,
@@ -41,13 +40,6 @@ import { toast } from "sonner"
 const ITEM_TYPE_LABELS: Record<ItemType, string> = {
   isi: "Barang Isi",
   kosong_box: "Kosong/Box",
-}
-
-const STATUS_DOT: Record<StockStatus, string> = {
-  tersedia: "bg-green-500",
-  kosong: "bg-red-500",
-  dipinjam: "bg-orange-500",
-  menunggu_approval: "bg-yellow-500",
 }
 
 type LocationWithCabinet = Location & { cabinet: Cabinet }
@@ -318,38 +310,20 @@ export default function ScanPage() {
     return set
   }, [lines])
 
-  const totalQty = React.useMemo(() => lines.reduce((acc, l) => acc + clampQty(l.qtyStr), 0), [lines])
-
   const dirty = React.useMemo(() => {
     if (!drawer) return false
     return lines.some((l) => {
       const qty = clampQty(l.qtyStr)
-      if (l.stock_id) return qty !== l.base
+      if (l.stock_id) {
+        const entry = drawer.stocks.find((s) => s.id === l.stock_id)
+        const locationChanged = !!entry && l.location_id !== entry.location_id
+        return locationChanged || qty !== l.base
+      }
       return !!l.location_id && qty > 0
     })
   }, [drawer, lines])
 
   const canSave = dirty && !saving
-
-  const lineLabel = (line: EditableLine): string => {
-    if (line.stock_id) {
-      const s = drawer?.stocks.find((x) => x.id === line.stock_id)
-      if (s) {
-        const code = locCode(s.location)
-        return s.location?.name ? `${code} · ${s.location.name}` : code
-      }
-    }
-    const l = locations.find((x) => x.id === line.location_id)
-    return l ? locLabel(l) : ""
-  }
-
-  const lineStatus = (line: EditableLine): StockStatus | undefined => {
-    if (line.stock_id) {
-      const s = drawer?.stocks.find((x) => x.id === line.stock_id)
-      if (s) return s.status
-    }
-    return undefined
-  }
 
   const saveAndRebuild = React.useCallback(
     async (itemId: string) => {
@@ -376,50 +350,72 @@ export default function ScanPage() {
   const handleSave = async () => {
     if (!drawer || saving) return
     setSaving(true)
+    const itemId = drawer.item.id
     const name = drawer.item.name
+    const currentRows = drawer.stocks
     try {
+      // Final desired state: one stock line per chosen location for this item.
+      const desired = new Map<string, number>()
+      for (const line of lines) {
+        if (!line.location_id) continue
+        const qty = clampQty(line.qtyStr)
+        // Never create an empty row for a brand-new line; keep existing rows (incl. qty 0 = kosong).
+        if (!line.stock_id && qty === 0) continue
+        desired.set(line.location_id, qty)
+      }
+
+      let moved = 0
       let updated = 0
       let added = 0
-      for (const line of lines) {
-        const qty = clampQty(line.qtyStr)
-        if (line.stock_id) {
-          const entry = drawer.stocks.find((s) => s.id === line.stock_id)
-          if (!entry || qty === line.base) continue
+
+      // 1) Remove any existing row whose location is no longer targeted,
+      //    i.e. that stock was moved to another location (old location is freed).
+      for (const row of currentRows) {
+        if (!desired.has(row.location_id)) {
+          const { error } = await supabase.from("stock_entries").delete().eq("id", row.id)
+          if (error) throw error
+          moved += 1
+        }
+      }
+
+      // 2) Upsert each targeted location (update if present, otherwise insert).
+      for (const [locId, qty] of desired) {
+        const row = currentRows.find((r) => r.location_id === locId)
+        if (row) {
+          if (row.quantity === qty) continue // unchanged
           // Auto-adjust status only between tersedia/kosong to preserve loan states.
           const target: StockStatus =
-            qty > 0 && entry.status === "kosong"
+            qty > 0 && row.status === "kosong"
               ? "tersedia"
-              : qty === 0 && entry.status === "tersedia"
+              : qty === 0 && row.status === "tersedia"
                 ? "kosong"
-                : entry.status
-          const statusPatch: Partial<Pick<StockEntry, "status">> =
-            entry.status !== target ? { status: target } : {}
+                : row.status
+          const statusPatch: Partial<Pick<StockEntry, "status">> = row.status !== target ? { status: target } : {}
           const { error } = await supabase
             .from("stock_entries")
             .update({ quantity: qty, ...statusPatch })
-            .eq("id", line.stock_id)
+            .eq("id", row.id)
           if (error) throw error
           updated += 1
-        } else if (line.location_id && qty > 0) {
-          // Adding a brand-new location for this product must not collide with existing stock.
-          if (drawer.stocks.some((s) => s.location_id === line.location_id)) continue
+        } else {
           const { error } = await supabase.from("stock_entries").insert({
-            item_id: drawer.item.id,
-            location_id: line.location_id,
+            item_id: itemId,
+            location_id: locId,
             quantity: qty,
-            status: "tersedia",
+            status: qty > 0 ? "tersedia" : "kosong",
           })
           if (error) throw error
           added += 1
         }
       }
 
-      await saveAndRebuild(drawer.item.id)
+      await saveAndRebuild(itemId)
       setSaving(false)
       const parts: string[] = []
-      if (updated > 0) parts.push(`${updated} lokasi diperbarui`)
-      if (added > 0) parts.push(`${added} lokasi ditambahkan`)
-      toast.success(`"${name}" disimpan (${parts.join(", ") || "tidak ada perubahan"}).`)
+      if (updated > 0) parts.push(`${updated} diperbarui`)
+      if (added > 0) parts.push(`${added} lokasi baru`)
+      if (moved > 0) parts.push(`${moved} dipindah`)
+      toast.success(`"${name}" disimpan${parts.length ? ` (${parts.join(", ")})` : ""}.`)
     } catch (err) {
       setSaving(false)
       toast.error("Gagal menyimpan: " + (err as Error).message)
@@ -434,13 +430,12 @@ export default function ScanPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <ScanLine className="size-6 text-primary" />
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
+          <ScanLine className="size-5 sm:size-6 text-primary" />
           Scan Barcode
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Arahkan ke QR/barcode berisi SKU, atau ketik SKU manual. Jika terdaftar, drawer terbuka untuk mengoreksi
-          stok di tiap lokasi (barang yang sama bisa ada di beberapa lokasi).
+        <p className="hidden sm:block text-sm text-muted-foreground mt-1">
+          Arahkan ke QR/barcode berisi SKU atau ketik manual, lalu koreksi stok di tiap lokasi.
         </p>
       </div>
 
@@ -453,16 +448,18 @@ export default function ScanPage() {
             mode === "camera" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
           }`}
         >
-          <Camera className="size-4" /> Kamera
+          <Camera className="size-4" />
+          <span className="hidden sm:inline">Kamera</span>
         </button>
         <button
           type="button"
           onClick={() => setMode("manual")}
-          className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 rounded-md px-2.5 sm:px-3 py-1.5 text-sm font-medium transition-colors ${
             mode === "manual" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
           }`}
         >
-          <Keyboard className="size-4" /> Manual SKU
+          <Keyboard className="size-4" />
+          <span className="hidden sm:inline">Manual SKU</span>
         </button>
       </div>
 
@@ -522,57 +519,63 @@ export default function ScanPage() {
 
       {/* Drawer for matched item */}
       <Sheet open={!!drawer} onOpenChange={(open) => !open && setDrawer(null)}>
-        <SheetContent side="right" className="sm:max-w-md w-full overflow-y-auto">
+        <SheetContent side="right" className="w-full p-0 sm:max-w-md">
           {drawer && (
-            <>
-              <SheetHeader className="pb-2">
-                <SheetTitle className="flex items-center gap-2 text-lg">
-                  <Package className="size-5 text-primary" />
-                  {drawer.item.name}
+            <div className="flex h-full flex-col">
+              <SheetHeader className="px-5 pt-5 pb-2">
+                <SheetTitle className="text-lg leading-snug pr-6">
+                  <span className="flex items-start gap-2">
+                    <Package className="size-5 shrink-0 mt-0.5 text-primary" />
+                    <span className="wrap-break-word">{drawer.item.name}</span>
+                  </span>
                 </SheetTitle>
-                <SheetDescription className="flex flex-wrap items-center gap-2 pt-1">
+                <SheetDescription className="flex flex-wrap items-center gap-1.5 pt-1.5">
                   <Badge variant="outline" className="font-mono">{drawer.item.sku}</Badge>
                   <Badge variant="secondary">{ITEM_TYPE_LABELS[drawer.item.item_type]}</Badge>
-                  <Badge variant="secondary">Satuan: {drawer.item.unit}</Badge>
+                  <span className="text-xs text-muted-foreground">Satuan: {drawer.item.unit}</span>
                 </SheetDescription>
               </SheetHeader>
 
-              <Separator className="my-3" />
+              {/* Scrollable body */}
+              <div className="flex-1 space-y-4 overflow-y-auto px-5 py-3">
+                <Separator />
 
-              <div className="mb-3 flex items-center justify-between">
-                <span className="flex items-center gap-1.5 text-sm font-medium">
-                  <Layers className="size-4 text-primary" />
-                  Stok per lokasi ({drawer.stocks.length} lokasi)
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  Total tersimpan: {totalStockSaved} {drawer.item.unit}
-                </span>
-              </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 text-sm font-medium">
+                    <Layers className="size-4 text-primary" />
+                    <span className="hidden sm:inline">Stok per lokasi</span>
+                    <span className="sm:hidden">Lokasi</span>
+                    <span className="font-normal text-muted-foreground">({drawer.stocks.length})</span>
+                  </span>
+                  <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
+                    Total: {totalStockSaved} {drawer.item.unit}
+                  </span>
+                </div>
 
-              {/* Editable per-location rows */}
-              <div className="space-y-2">
                 {lines.length === 0 && (
                   <p className="text-sm text-muted-foreground">
-                    Barang ini belum memiliki stok. Tekan "Tambah Lokasi" lalu pilih lokasi & jumlah.
+                    Barang ini belum memiliki stok. Tekan "Tambah Lokasi".
                   </p>
                 )}
-                {lines.map((line) => {
-                  const isNew = !line.stock_id
-                  const status = lineStatus(line)
-                  const availableLocs = locations.filter(
-                    (l) => !usedLocations.has(l.id) || l.id === line.location_id
-                  )
-                  return (
-                    <div
-                      key={line.key}
-                      className={`flex items-center gap-2 rounded-lg border p-2 ${isNew ? "border-dashed" : ""}`}
-                    >
-                      {isNew ? (
+
+                <div className="space-y-2.5">
+                  {lines.map((line) => {
+                    const isNew = !line.stock_id
+                    const availableLocs = locations.filter(
+                      (l) => !usedLocations.has(l.id) || l.id === line.location_id
+                    )
+                    return (
+                      <div
+                        key={line.key}
+                        className={`flex items-center gap-1.5 rounded-xl border py-1 pr-1 pl-2 ${
+                          isNew ? "border-dashed bg-muted/30" : ""
+                        }`}
+                      >
                         <Select
                           value={line.location_id || undefined}
                           onValueChange={(v) => updateLine(line.key, { location_id: v })}
                         >
-                          <SelectTrigger className="flex-1 min-w-0 h-9">
+                          <SelectTrigger className="h-10 min-w-0 flex-1 border-transparent bg-transparent px-1.5 hover:border-input data-placeholder:text-muted-foreground">
                             <SelectValue placeholder="Pilih lokasi" />
                           </SelectTrigger>
                           <SelectContent>
@@ -583,73 +586,67 @@ export default function ScanPage() {
                             ))}
                           </SelectContent>
                         </Select>
-                      ) : (
-                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                          <MapPin className="size-3.5 shrink-0 text-muted-foreground" />
-                          <span className="text-sm font-medium truncate">{lineLabel(line)}</span>
-                          {status && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[status]}`} />}
+
+                        <div className="flex shrink-0 items-center gap-1">
+                          <Input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            value={line.qtyStr}
+                            onChange={(e) => updateLine(line.key, { qtyStr: e.target.value })}
+                            placeholder="0"
+                            aria-label="Jumlah"
+                            className="h-10 w-20 text-right"
+                          />
+                          {isNew && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-10 shrink-0 text-muted-foreground"
+                              onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
+                              aria-label="Hapus baris"
+                            >
+                              <X className="size-4" />
+                            </Button>
+                          )}
                         </div>
-                      )}
+                      </div>
+                    )
+                  })}
+                </div>
 
-                      <Input
-                        type="number"
-                        min={0}
-                        inputMode="numeric"
-                        value={line.qtyStr}
-                        onChange={(e) => updateLine(line.key, { qtyStr: e.target.value })}
-                        placeholder="0"
-                        className="w-20 h-9 text-right"
-                      />
-
-                      {isNew && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-9 shrink-0 text-muted-foreground"
-                          onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))}
-                          aria-label="Hapus baris"
-                        >
-                          <X className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-3 w-full"
-                onClick={() => setLines((prev) => [...prev, blankLine()])}
-                disabled={saving}
-              >
-                <Plus className="size-4" /> Tambah Lokasi
-              </Button>
-
-              <p className="text-xs text-muted-foreground mt-2">
-                Jumlah yang sedang diketik: {totalQty} {drawer.item.unit}. Set jumlah ke 0 untuk menandai kosong pada
-                lokasi tersebut.
-              </p>
-
-              <div className="mt-5 flex flex-col gap-2">
-                {canSave && (
-                  <Button onClick={() => void handleSave()} disabled={!canSave} size="lg">
-                    {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                    Simpan Perubahan
-                  </Button>
-                )}
-                <Button variant="outline" onClick={() => setDrawer(null)} disabled={saving}>
-                  Tutup
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => setLines((prev) => [...prev, blankLine()])}
+                  disabled={saving}
+                >
+                  <Plus className="size-4" /> Tambah Lokasi
                 </Button>
-                {!canSave && !saving && (
-                  <p className="text-center text-xs text-muted-foreground">
-                    <CheckCircle2 className="size-3.5 inline mr-1 -mt-0.5 text-green-600" />
-                    Tidak ada perubahan — tombol simpan muncul jika data diubah.
-                  </p>
-                )}
               </div>
-            </>
+
+              {/* Pinned footer */}
+              <div className="border-t px-5 py-4">
+                <div className="flex flex-col gap-2">
+                  {canSave && (
+                    <Button onClick={() => void handleSave()} disabled={!canSave} size="lg" className="w-full">
+                      {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+                      Simpan Perubahan
+                    </Button>
+                  )}
+                  <Button variant="outline" onClick={() => setDrawer(null)} disabled={saving} className="w-full">
+                    Tutup
+                  </Button>
+                  {!canSave && !saving && (
+                    <p className="hidden sm:block text-center text-xs text-muted-foreground">
+                      <CheckCircle2 className="size-3.5 inline mr-1 -mt-0.5 text-green-600" />
+                      Tidak ada perubahan — tombol simpan muncul jika data diubah.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </SheetContent>
       </Sheet>
