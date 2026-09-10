@@ -87,10 +87,21 @@ function cameraErrorMessage(err: unknown): string {
   }
 }
 
+function detectInAppBrowser(): boolean {
+  const ua = navigator.userAgent || ""
+  return /FBAN|FBAV|Instagram|Line\/|WhatsApp|Twitter|MicroMessenger/i.test(ua)
+}
+
+function diagText(err: unknown): string {
+  const e = err as { name?: string; message?: string } | null
+  return `error=${e?.name ?? "?"} | secure=${window.isSecureContext} | ${location.protocol} | mediaDevices=${!!navigator.mediaDevices} | inApp=${detectInAppBrowser()}`
+}
+
 function CameraScanner({ onDecode, active }: ScannerProps) {
   const scannerRef = React.useRef<Html5Qrcode | null>(null)
   const [state, setState] = React.useState<"idle" | "starting" | "scanning" | "error">("idle")
   const [error, setError] = React.useState<string | null>(null)
+  const [diag, setDiag] = React.useState("")
   const decodeLockRef = React.useRef(false)
   const lockTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   // Bumped on every start/stop so an in-flight start can detect it was superseded.
@@ -202,6 +213,7 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
           return
         }
         startedOnceRef.current = true
+        setDiag("")
         setState("scanning")
         return
       } catch (err) {
@@ -222,7 +234,46 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
     if (genRef.current !== gen) return
     setState("error")
     setError(cameraErrorMessage(lastErr))
+    setDiag(diagText(lastErr))
   }, [])
+
+  const handleStartClick = React.useCallback(async () => {
+    setError(null)
+    setDiag("")
+    if (detectInAppBrowser()) {
+      setState("error")
+      setError(
+        'Kamera tidak bisa dibuka dari browser dalam aplikasi. Buka link ini di Safari/Chrome dulu (menu \u22ef \u2192 "Open in Safari").'
+      )
+      return
+    }
+    if (!window.isSecureContext) {
+      setState("error")
+      setError(
+        "Kamera hanya bisa diakses lewat koneksi aman. Buka aplikasi via https:// atau http://localhost (bukan alamat IP/LAN biasa)."
+      )
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setState("error")
+      setError("Browser ini tidak mendukung akses kamera (getUserMedia).")
+      return
+    }
+    // Ask for the camera directly inside the user gesture. This is what makes the
+    // iOS Safari permission prompt appear and keeps permission for later starts.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      })
+      stream.getTracks().forEach((track) => track.stop())
+    } catch (err) {
+      setState("error")
+      setError(cameraErrorMessage(err))
+      setDiag(diagText(err))
+      return
+    }
+    await startCamera()
+  }, [startCamera])
 
   // The camera starts on its own (shortly delayed so React StrictMode's
   // double-mount can't fire two overlapping start() calls) and restarts after
@@ -269,6 +320,7 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-4 text-center">
             <AlertTriangle className="size-7 text-destructive" />
             <p className="text-sm text-muted-foreground">{error}</p>
+            {diag && <p className="text-[10px] leading-tight text-muted-foreground/70 wrap-break-word">{diag}</p>}
           </div>
         )}
         {state === "scanning" && (
@@ -277,7 +329,7 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
       </div>
 
       {state !== "scanning" && state !== "starting" && (
-        <Button variant="outline" className="w-full max-w-sm mx-auto flex" onClick={() => void startCamera()}>
+        <Button variant="outline" className="w-full max-w-sm mx-auto flex" onClick={() => void handleStartClick()}>
           {state === "error" ? <RotateCw className="size-4" /> : <Camera className="size-4" />}
           {state === "error" ? "Coba Lagi" : "Aktifkan Kamera"}
         </Button>
