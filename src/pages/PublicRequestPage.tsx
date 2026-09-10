@@ -7,8 +7,6 @@ import {
   Package,
   CheckCircle2,
   AlertTriangle,
-  PackageCheck,
-  PackageX,
   ClipboardList,
   CalendarDays,
   Minus,
@@ -40,21 +38,33 @@ type AvailableItem = {
   available: number
 }
 
+type LoanItem = { item_name: string; item_sku: string | null; quantity: number }
+
 type RequestStatus = {
   code: string
-  item_name: string
+  item_name: string | null
   status: string
   prepared: boolean
   borrower_name: string
   return_date: string | null
   created_at: string
+  items?: LoanItem[]
 }
 
-const STATUS_LABEL: Record<string, { label: string; className: string }> = {
-  menunggu_approval: { label: "Menunggu approval", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
-  disetujui: { label: "Disetujui", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
-  ditolak: { label: "Ditolak", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-  selesai: { label: "Dikembalikan", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+/** Single badge following the flow: menunggu -> disetujui/ditolak -> disiapkan -> dikembalikan. */
+function stageOf(status: string, prepared: boolean): { label: string; className: string } {
+  if (status === "selesai") {
+    return { label: "Dikembalikan", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" }
+  }
+  if (status === "ditolak") {
+    return { label: "Ditolak", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" }
+  }
+  if (status === "disetujui") {
+    return prepared
+      ? { label: "Disiapkan", className: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" }
+      : { label: "Disetujui", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" }
+  }
+  return { label: "Menunggu disetujui", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" }
 }
 
 /** Turn low-level PostgREST errors into actionable messages. */
@@ -105,11 +115,16 @@ export default function PublicRequestPage() {
   const [formError, setFormError] = React.useState("")
   const [resultCode, setResultCode] = React.useState<string | null>(null)
 
-  const [checkCode, setCheckCode] = React.useState("")
-  const [checking, setChecking] = React.useState(false)
-  const [checkError, setCheckError] = React.useState("")
-  const [checkResult, setCheckResult] = React.useState<RequestStatus | null>(null)
+  // saved submissions + live status
   const [savedCodes, setSavedCodes] = React.useState<string[]>([])
+  const [statusByCode, setStatusByCode] = React.useState<Record<string, RequestStatus>>({})
+
+  // detail modal
+  const [detailOpen, setDetailOpen] = React.useState(false)
+  const [detailCode, setDetailCode] = React.useState("")
+  const [detailLoading, setDetailLoading] = React.useState(false)
+  const [detailError, setDetailError] = React.useState("")
+  const [codeInput, setCodeInput] = React.useState("")
 
   React.useEffect(() => {
     setSavedCodes(loadCodes())
@@ -127,6 +142,49 @@ export default function PublicRequestPage() {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // Live status for the saved submissions (poll every 5s).
+  React.useEffect(() => {
+    if (savedCodes.length === 0) return
+    let cancelled = false
+    const fetchAll = async () => {
+      const { data } = await supabase.rpc("public_loan_requests_status", { p_codes: savedCodes })
+      if (cancelled || !data) return
+      const map: Record<string, RequestStatus> = {}
+      ;(data as RequestStatus[]).forEach((r) => {
+        map[r.code] = r
+      })
+      setStatusByCode(map)
+    }
+    void fetchAll()
+    const timer = setInterval(fetchAll, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [savedCodes])
+
+  const openDetail = async (code: string) => {
+    const trimmed = code.trim().toUpperCase()
+    if (!trimmed) return
+    setDetailCode(trimmed)
+    setDetailOpen(true)
+    setDetailError("")
+    if (statusByCode[trimmed]) return
+    setDetailLoading(true)
+    const { data, error } = await supabase.rpc("public_loan_request_status", { p_code: trimmed })
+    if (error) {
+      setDetailError(friendlyError(error.message))
+    } else {
+      const row = Array.isArray(data) ? (data[0] as RequestStatus | undefined) : (data as RequestStatus | null)
+      if (!row) setDetailError("Kode tidak ditemukan.")
+      else setStatusByCode((prev) => ({ ...prev, [row.code]: row }))
+    }
+    setDetailLoading(false)
+  }
+
+  const detail = detailCode ? statusByCode[detailCode] : undefined
+  const detailStage = detail ? stageOf(detail.status, detail.prepared) : null
 
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -188,6 +246,14 @@ export default function PublicRequestPage() {
     setFormOpen(true)
   }
 
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch {
+      /* ignore */
+    }
+  }
+
   const submit = async () => {
     if (!borrower.trim()) {
       setFormError("Nama peminjam wajib diisi.")
@@ -222,31 +288,6 @@ export default function PublicRequestPage() {
     setSubmitting(false)
   }
 
-  const copyCode = async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code)
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const checkStatus = async (codeArg?: string) => {
-    const code = (codeArg ?? checkCode).trim()
-    if (!code) return
-    setChecking(true)
-    setCheckError("")
-    setCheckResult(null)
-    const { data, error } = await supabase.rpc("public_loan_request_status", { p_code: code })
-    if (error) {
-      setCheckError(friendlyError(error.message))
-    } else {
-      const row = Array.isArray(data) ? (data[0] as RequestStatus | undefined) : (data as RequestStatus | null)
-      if (!row) setCheckError("Kode tidak ditemukan.")
-      else setCheckResult(row)
-    }
-    setChecking(false)
-  }
-
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-10 border-b bg-background/85 backdrop-blur">
@@ -262,95 +303,63 @@ export default function PublicRequestPage() {
       </header>
 
       <main className={`mx-auto max-w-3xl space-y-6 px-4 py-6 ${cartItems.length > 0 ? "pb-28" : ""}`}>
-        {/* Check status */}
+        {/* My submissions + open by code */}
         <section className="space-y-3 rounded-2xl border p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <ClipboardList className="size-4 text-primary" />
-            Cek status pengajuan
+            Pengajuan saya
           </h2>
-          <div className="flex gap-2">
-            <Input
-              placeholder="Masukkan kode, mis. LN-20260910-0001"
-              value={checkCode}
-              onChange={(e) => setCheckCode(e.target.value.toUpperCase())}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void checkStatus()
-              }}
-              className="font-mono uppercase"
-            />
-            <Button variant="outline" onClick={() => void checkStatus()} disabled={checking || !checkCode.trim()}>
-              {checking ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-              <span className="hidden sm:inline">Cek</span>
-            </Button>
-          </div>
 
-          {checkError && (
-            <p className="flex items-center gap-2 text-sm text-destructive">
-              <AlertTriangle className="size-4" /> {checkError}
+          {savedCodes.length > 0 ? (
+            <div className="space-y-2">
+              {savedCodes.map((c) => {
+                const st = statusByCode[c]
+                const stage = st ? stageOf(st.status, st.prepared) : null
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => void openDetail(c)}
+                    className="flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-mono text-sm font-medium">{c}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {st?.item_name ?? "Memuat…"}
+                      </span>
+                    </span>
+                    {stage ? (
+                      <Badge variant="outline" className={`shrink-0 ${stage.className}`}>{stage.label}</Badge>
+                    ) : (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+                    )}
+                  </button>
+                )
+              })}
+              <p className="text-xs text-muted-foreground">Status diperbarui otomatis. Ketuk untuk detail.</p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Belum ada pengajuan di perangkat ini. Masukkan kode bila Anda punya.
             </p>
           )}
 
-          {checkResult && (
-            <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="font-mono">{checkResult.code}</Badge>
-                <Badge variant="outline" className={STATUS_LABEL[checkResult.status]?.className ?? ""}>
-                  {STATUS_LABEL[checkResult.status]?.label ?? checkResult.status}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className={
-                    checkResult.prepared
-                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                      : "bg-muted text-muted-foreground"
-                  }
-                >
-                  {checkResult.prepared ? (
-                    <>
-                      <PackageCheck className="size-3.5" /> Sudah disiapkan
-                    </>
-                  ) : (
-                    <>
-                      <PackageX className="size-3.5" /> Belum disiapkan
-                    </>
-                  )}
-                </Badge>
-              </div>
-              <p className="text-sm font-medium">{checkResult.item_name}</p>
-              <p className="text-xs text-muted-foreground">
-                Peminjam: {checkResult.borrower_name}
-                {checkResult.return_date ? ` · Kembali: ${checkResult.return_date}` : ""}
-              </p>
-            </div>
-          )}
+          <div className="flex gap-2 pt-1">
+            <Input
+              placeholder="Punya kode? mis. LN-20260910-0001"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void openDetail(codeInput)
+              }}
+              className="font-mono uppercase"
+            />
+            <Button variant="outline" onClick={() => void openDetail(codeInput)} disabled={!codeInput.trim()}>
+              <Search className="size-4" />
+              <span className="hidden sm:inline">Buka</span>
+            </Button>
+          </div>
         </section>
-
-        {/* My submissions (kept on this device) */}
-        {savedCodes.length > 0 && (
-          <section className="space-y-2 rounded-2xl border p-4">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <ClipboardList className="size-4 text-primary" />
-              Pengajuan saya
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {savedCodes.map((c) => (
-                <Button
-                  key={c}
-                  variant="outline"
-                  size="sm"
-                  className="font-mono"
-                  onClick={() => {
-                    setCheckCode(c)
-                    void checkStatus(c)
-                  }}
-                >
-                  {c}
-                </Button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">Ketuk kode untuk melihat status terbaru.</p>
-          </section>
-        )}
 
         {/* Available items */}
         <section className="space-y-3">
@@ -450,16 +459,78 @@ export default function PublicRequestPage() {
       {cartItems.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 backdrop-blur">
           <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-sm font-medium">
-                <ShoppingCart className="size-4 text-primary" />
-                {cartItems.length} jenis · {totalItems} item
-              </p>
-            </div>
+            <p className="flex items-center gap-1.5 text-sm font-medium">
+              <ShoppingCart className="size-4 text-primary" />
+              {cartItems.length} jenis · {totalItems} item
+            </p>
             <Button onClick={openForm}>Ajukan Pinjam</Button>
           </div>
         </div>
       )}
+
+      {/* Detail modal */}
+      <Dialog open={detailOpen} onOpenChange={(open) => !open && setDetailOpen(false)}>
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="gap-1 border-b px-4 py-3 pr-12 text-left">
+            <DialogTitle className="text-base">Detail Pengajuan</DialogTitle>
+            <DialogDescription className="font-mono">{detailCode}</DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+            {detailLoading && !detail ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : detailError ? (
+              <p className="flex items-center gap-2 text-sm text-destructive">
+                <AlertTriangle className="size-4 shrink-0" /> {detailError}
+              </p>
+            ) : detail ? (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  {detailStage && (
+                    <Badge variant="outline" className={detailStage.className}>{detailStage.label}</Badge>
+                  )}
+                </div>
+
+                <div className="space-y-1.5 text-sm">
+                  <p className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">Peminjam:</span>
+                    <span className="font-medium">{detail.borrower_name}</span>
+                  </p>
+                  {detail.return_date && (
+                    <p className="flex items-center gap-1.5 text-muted-foreground">
+                      <CalendarDays className="size-3.5" /> Kembali: {detail.return_date}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  {(detail.items ?? []).length > 0 ? (
+                    (detail.items ?? []).map((it, idx) => (
+                      <div
+                        key={`${it.item_name}-${idx}`}
+                        className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm"
+                      >
+                        <span className="min-w-0 truncate font-medium">{it.item_name}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">× {it.quantity}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm">{detail.item_name}</div>
+                  )}
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <DialogFooter className="border-t px-4 py-3">
+            <Button variant="outline" className="w-full sm:w-auto" onClick={() => setDetailOpen(false)}>
+              Tutup
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Request form */}
       <Dialog
@@ -551,8 +622,15 @@ export default function PublicRequestPage() {
                 >
                   <Copy className="size-4" /> Salin kode
                 </Button>
-                <Button className="w-full sm:w-auto" onClick={() => setFormOpen(false)}>
-                  Selesai
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    const code = resultCode
+                    setFormOpen(false)
+                    void openDetail(code)
+                  }}
+                >
+                  Lihat detail
                 </Button>
               </>
             ) : (

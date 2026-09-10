@@ -49,11 +49,20 @@ type LoanRequest = {
   items?: LoanRequestItem[]
 }
 
-const STATUS_LABEL: Record<string, { label: string; className: string }> = {
-  menunggu_approval: { label: "Menunggu", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
-  disetujui: { label: "Disetujui", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
-  ditolak: { label: "Ditolak", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-  selesai: { label: "Dikembalikan", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+/** Single badge following the flow: menunggu -> disetujui/ditolak -> disiapkan -> dikembalikan. */
+function stageOf(status: string, prepared: boolean): { label: string; className: string } {
+  if (status === "selesai") {
+    return { label: "Dikembalikan", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" }
+  }
+  if (status === "ditolak") {
+    return { label: "Ditolak", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" }
+  }
+  if (status === "disetujui") {
+    return prepared
+      ? { label: "Disiapkan", className: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400" }
+      : { label: "Disetujui", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" }
+  }
+  return { label: "Menunggu disetujui", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" }
 }
 
 export default function LoanRequestsPage() {
@@ -182,19 +191,12 @@ export default function LoanRequestsPage() {
       ) : (
         <div className="space-y-2">
           {shown.map((r) => {
-            const status = STATUS_LABEL[r.status] ?? { label: r.status, className: "" }
+            const stage = stageOf(r.status, r.prepared)
             return (
               <div key={r.id} className="space-y-3 rounded-xl border p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline" className="font-mono">{r.code}</Badge>
-                  <Badge variant="outline" className={status.className}>{status.label}</Badge>
-                  <Badge
-                    variant="outline"
-                    className={r.prepared ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-muted text-muted-foreground"}
-                  >
-                    {r.prepared ? <PackageCheck className="size-3.5" /> : <PackageX className="size-3.5" />}
-                    {r.prepared ? "Disiapkan" : "Belum"}
-                  </Badge>
+                  <Badge variant="outline" className={stage.className}>{stage.label}</Badge>
                 </div>
 
                 <div className="flex items-start justify-between gap-3">
