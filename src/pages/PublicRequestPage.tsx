@@ -402,8 +402,8 @@ export default function PublicRequestPage() {
           if (!open) setResultCode(null)
         }}
       >
-        <DialogContent className="max-h-[90dvh] overflow-y-auto overflow-x-hidden sm:max-w-md">
-          <DialogHeader>
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100vw-1.5rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="gap-1 border-b px-4 py-3 pr-12 text-left">
             <DialogTitle className="text-base">Ajukan Pinjam</DialogTitle>
             <DialogDescription>
               {resultCode ? "Pengajuan terkirim." : `${cartItems.length} jenis barang dipilih.`}
@@ -411,60 +411,72 @@ export default function PublicRequestPage() {
           </DialogHeader>
 
           {resultCode ? (
-            <div className="space-y-3 py-2 text-center">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-6 text-center">
               <CheckCircle2 className="mx-auto size-10 text-green-500" />
               <p className="text-sm font-medium">Pengajuan terkirim!</p>
-              <p className="text-xs text-muted-foreground">Simpan kode ini untuk cek status & keperluan audit:</p>
-              <p className="rounded-lg border bg-muted/40 py-2 font-mono text-sm font-semibold">{resultCode}</p>
-              <Button className="w-full" onClick={() => setFormOpen(false)}>Selesai</Button>
+              <p className="text-xs text-muted-foreground">Simpan kode ini untuk cek status &amp; keperluan audit:</p>
+              <p className="rounded-lg border bg-muted/40 py-2 font-mono text-sm font-semibold break-all">{resultCode}</p>
             </div>
           ) : (
-            <>
-              <div className="space-y-4">
-                {/* Selected items */}
-                <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-xl border bg-muted/30 p-3">
-                  {cartItems.map(({ item, qty }) => (
-                    <div key={item.item_id} className="flex items-center justify-between gap-2 text-sm">
-                      <span className="min-w-0 truncate">{item.name}</span>
-                      <span className="shrink-0 tabular-nums text-muted-foreground">
-                        {qty} {item.unit}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="borrower">Nama peminjam <span className="text-destructive">*</span></Label>
-                  <Input
-                    id="borrower"
-                    placeholder="Nama lengkap"
-                    value={borrower}
-                    onChange={(e) => setBorrower(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="return" className="flex items-center gap-1.5">
-                    <CalendarDays className="size-3.5" /> Tanggal dikembalikan
-                  </Label>
-                  <Input id="return" type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Catatan (opsional)</Label>
-                  <Textarea
-                    id="notes"
-                    rows={2}
-                    placeholder="Divisi / keperluan..."
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                  />
-                </div>
-                {formError && (
-                  <p className="flex items-center gap-2 text-sm text-destructive">
-                    <AlertTriangle className="size-4" /> {formError}
-                  </p>
-                )}
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+              {/* Selected items */}
+              <div className="space-y-1.5 rounded-xl border bg-muted/30 p-3">
+                {cartItems.map(({ item, qty }) => (
+                  <div key={item.item_id} className="flex items-center justify-between gap-2 text-sm">
+                    <span className="min-w-0 truncate">{item.name}</span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {qty} {item.unit}
+                    </span>
+                  </div>
+                ))}
               </div>
-              <DialogFooter className="gap-2 sm:gap-0">
+
+              <div className="space-y-2">
+                <Label htmlFor="borrower">Nama peminjam <span className="text-destructive">*</span></Label>
+                <Input
+                  id="borrower"
+                  placeholder="Nama lengkap"
+                  value={borrower}
+                  onChange={(e) => setBorrower(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="return" className="flex items-center gap-1.5">
+                  <CalendarDays className="size-3.5" /> Tanggal dikembalikan
+                </Label>
+                <Input
+                  id="return"
+                  type="date"
+                  value={returnDate}
+                  onChange={(e) => setReturnDate(e.target.value)}
+                  className="w-full min-w-0"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="notes">Catatan (opsional)</Label>
+                <Textarea
+                  id="notes"
+                  rows={2}
+                  placeholder="Divisi / keperluan..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+              {formError && (
+                <p className="flex items-center gap-2 text-sm text-destructive">
+                  <AlertTriangle className="size-4 shrink-0" /> {formError}
+                </p>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end">
+            {resultCode ? (
+              <Button className="w-full sm:w-auto" onClick={() => setFormOpen(false)}>
+                Selesai
+              </Button>
+            ) : (
+              <>
                 <Button variant="outline" onClick={() => setFormOpen(false)} disabled={submitting}>
                   Batal
                 </Button>
@@ -472,9 +484,9 @@ export default function PublicRequestPage() {
                   {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
                   Ajukan Pinjam
                 </Button>
-              </DialogFooter>
-            </>
-          )}
+              </>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
