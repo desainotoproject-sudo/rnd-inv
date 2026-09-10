@@ -62,6 +62,29 @@ function clampQty(raw: string): number {
   return Math.max(0, Number.parseInt(raw, 10) || 0)
 }
 
+/**
+ * Build a list of possible SKU candidates from decoded QR text. Product QRs often
+ * contain a URL (e.g. https://brand.com/p/4101200303) or extra text, while the SKU
+ * is stored plainly in the DB. We try the raw text first, then tokens from it.
+ */
+function skuCandidates(raw: string): string[] {
+  const base = raw.trim().toUpperCase()
+  if (!base) return []
+  const set = new Set<string>()
+  set.add(base)
+  let tokenSource = base
+  try {
+    const url = new URL(base)
+    tokenSource = `${url.pathname}${url.search}${url.hash}`
+  } catch {
+    /* not a URL — use the raw text */
+  }
+  for (const token of tokenSource.split(/[^A-Z0-9]+/)) {
+    if (token.length >= 3) set.add(token)
+  }
+  return [...set].slice(0, 8)
+}
+
 type ScannerProps = {
   onDecode: (text: string) => void
   /** When true the camera runs and scans automatically (camera mode & drawer closed). */
@@ -130,6 +153,42 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
       } catch {
         /* ignore cleanup errors */
       }
+    }
+  }, [])
+
+  // Improve the live camera AFTER a successful start: ask for a higher resolution
+  // and continuous autofocus when supported. Done via applyConstraints so it can
+  // never break the start (unlike strict getUserMedia constraints, which fail on iOS).
+  const enhanceVideoTrack = React.useCallback(async () => {
+    try {
+      const video = document.querySelector<HTMLVideoElement>("#scan-region video")
+      const stream = video?.srcObject as MediaStream | null
+      const track = stream?.getVideoTracks?.()[0] as unknown as
+        | {
+            applyConstraints?: (c: MediaTrackConstraints) => Promise<void>
+            getCapabilities?: () => { focusMode?: string[] }
+          }
+        | undefined
+      if (!track?.applyConstraints) return
+
+      try {
+        await track.applyConstraints({ width: { ideal: 1920 }, height: { ideal: 1080 } })
+      } catch {
+        /* ignore: keep the current resolution */
+      }
+
+      const focusModes = track.getCapabilities?.().focusMode
+      if (Array.isArray(focusModes) && focusModes.includes("continuous")) {
+        try {
+          await track.applyConstraints({
+            advanced: [{ focusMode: "continuous" } as unknown as MediaTrackConstraintSet],
+          })
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch {
+      /* ignore */
     }
   }, [])
 
@@ -204,6 +263,7 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
       }
       startedOnceRef.current = true
       setState("scanning")
+      void enhanceVideoTrack()
     } catch (err) {
       try {
         if (s?.isScanning) await s!.stop()
@@ -298,6 +358,12 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
         )}
       </div>
 
+      {state === "scanning" && (
+        <p className="text-center text-xs text-muted-foreground">
+          Dekatkan QR sampai memenuhi kotak agar terbaca.
+        </p>
+      )}
+
       {state !== "scanning" && state !== "starting" && (
         <Button variant="outline" className="w-full max-w-sm mx-auto flex" onClick={() => void handleStartClick()}>
           {state === "error" ? <RotateCw className="size-4" /> : <Camera className="size-4" />}
@@ -385,35 +451,36 @@ export default function ScanPage() {
 
   const runLookup = React.useCallback(
     async (raw: string) => {
-      const value = raw.trim().toUpperCase()
-      if (!value) return
-      setLookup({ status: "searching", raw: value })
-      setManualSku(value)
+      const rawText = raw.trim()
+      if (!rawText) return
+      setLookup({ status: "searching", raw: rawText })
+      setManualSku(rawText.toUpperCase())
 
-      // One single round-trip query for maximum speed:
-      // - `sku` is a UNIQUE column, so `.eq()` on the exact (uppercased) value hits
-      //   the unique index instead of doing a case-insensitive scan (unlike ILIKE).
-      // - The item and ALL its stock entries (with their locations) are returned
-      //   together in a single request, avoiding a second sequential query.
-      const { data, error } = await supabase
-        .from("items")
-        .select("*, stock_entries(*, location:locations(*, cabinet:cabinets(*)))")
-        .eq("sku", value)
-        .maybeSingle()
+      // `sku` is a UNIQUE column, so `.eq()` on an exact (uppercased) value hits the
+      // unique index. We try the decoded text first, then extracted tokens (in case
+      // the QR contains a URL or extra text). The item and ALL its stock entries
+      // (with locations) are returned together in one request.
+      const selectClause = "*, stock_entries(*, location:locations(*, cabinet:cabinets(*)))"
+      for (const candidate of skuCandidates(rawText)) {
+        const { data, error } = await supabase
+          .from("items")
+          .select(selectClause)
+          .eq("sku", candidate)
+          .maybeSingle()
 
-      if (error) {
-        setLookup({ status: "error", raw: value, msg: error.message })
-        return
+        if (error) {
+          setLookup({ status: "error", raw: rawText, msg: error.message })
+          return
+        }
+        if (data) {
+          const found = data as unknown as Item & { stock_entries: StockLine[] }
+          setLookup(null)
+          openDrawer(found, (found.stock_entries ?? []) as StockLine[])
+          return
+        }
       }
-      if (!data) {
-        setLookup({ status: "notfound", raw: value })
-        return
-      }
 
-      // data carries the item fields plus the embedded `stock_entries` relation.
-      const found = data as unknown as Item & { stock_entries: StockLine[] }
-      setLookup(null)
-      openDrawer(found, (found.stock_entries ?? []) as StockLine[])
+      setLookup({ status: "notfound", raw: rawText })
     },
     [openDrawer]
   )
