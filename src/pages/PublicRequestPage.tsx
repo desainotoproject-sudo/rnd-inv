@@ -402,7 +402,7 @@ export default function PublicRequestPage() {
           if (!open) setResultCode(null)
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto overflow-x-hidden sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base">Ajukan Pinjam</DialogTitle>
             <DialogDescription>
@@ -422,7 +422,7 @@ export default function PublicRequestPage() {
             <>
               <div className="space-y-4">
                 {/* Selected items */}
-                <div className="space-y-1.5 rounded-xl border bg-muted/30 p-3">
+                <div className="max-h-40 space-y-1.5 overflow-y-auto rounded-xl border bg-muted/30 p-3">
                   {cartItems.map(({ item, qty }) => (
                     <div key={item.item_id} className="flex items-center justify-between gap-2 text-sm">
                       <span className="min-w-0 truncate">{item.name}</span>
