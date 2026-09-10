@@ -263,7 +263,11 @@ export default function PublicRequestPage() {
               <AlertTriangle className="size-4" /> Gagal memuat data: {error}
             </p>
           ) : filtered.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Tidak ada barang tersedia.</p>
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              Belum ada barang tersedia. Barang tampil di sini bila punya stok dengan status{" "}
+              <span className="font-medium text-foreground">&quot;Tersedia&quot;</span> dan jumlah{" "}
+              <span className="font-medium text-foreground">&gt; 0</span>.
+            </p>
           ) : (
             <div className="space-y-2">
               {shown.map((item) => (
