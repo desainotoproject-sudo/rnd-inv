@@ -153,88 +153,70 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
     const gen = ++genRef.current
     setState("starting")
     setError(null)
+    setDiag("")
     decodeLockRef.current = false
 
-    // Try several constraint sets from best quality down to the safest, because
-    // iOS Safari (and some Android browsers) reject overly specific constraints.
-    const attempts: MediaTrackConstraints[] = [
-      { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
-      { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      { facingMode: { ideal: "environment" } },
-      {},
-    ]
+    let s: Html5Qrcode | null = null
+    try {
+      // Clear leftover DOM from a previous session (some mobile browsers need this).
+      const region = document.getElementById("scan-region")
+      if (region) region.innerHTML = ""
 
-    const scanConfig = {
-      fps: 15,
-      // Scan almost the whole viewfinder so a small code anywhere still decodes.
-      qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
-        const min = Math.min(viewfinderWidth, viewfinderHeight)
-        const size = Math.max(160, Math.floor(min * 0.9))
-        return { width: size, height: size }
-      },
-      disableFlip: false,
-    }
-
-    const onSuccess = (decodedText: string) => {
-      if (decodeLockRef.current) return
-      decodeLockRef.current = true
-      // Auto-unlock shortly so scanning continues if no drawer opens (e.g. SKU not found).
-      if (lockTimerRef.current) clearTimeout(lockTimerRef.current)
-      lockTimerRef.current = setTimeout(() => {
-        decodeLockRef.current = false
-        lockTimerRef.current = null
-      }, 2000)
-      onDecodeRef.current(decodedText)
-    }
-
-    let lastErr: unknown = null
-    for (const constraints of attempts) {
-      if (genRef.current !== gen) return
-      let s: Html5Qrcode | null = null
-      try {
-        // `useBarCodeDetectorIfSupported` uses the native BarcodeDetector when
-        // available (ignored safely on iOS, which lacks it).
-        s = new Html5Qrcode("scan-region", {
-          verbose: false,
-          useBarCodeDetectorIfSupported: true,
-        })
-        scannerRef.current = s
-        await s.start(constraints, scanConfig, onSuccess, () => {
+      // Keep the camera request MINIMAL — the most compatible config, especially
+      // on iOS Safari where extra resolution/aspect constraints can make it fail.
+      s = new Html5Qrcode("scan-region", { verbose: false, useBarCodeDetectorIfSupported: true })
+      scannerRef.current = s
+      await s.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+            const min = Math.min(viewfinderWidth, viewfinderHeight)
+            const size = Math.max(160, Math.floor(min * 0.8))
+            return { width: size, height: size }
+          },
+          disableFlip: false,
+        },
+        (decodedText) => {
+          if (decodeLockRef.current) return
+          decodeLockRef.current = true
+          // Auto-unlock shortly so scanning continues if no drawer opens (e.g. SKU not found).
+          if (lockTimerRef.current) clearTimeout(lockTimerRef.current)
+          lockTimerRef.current = setTimeout(() => {
+            decodeLockRef.current = false
+            lockTimerRef.current = null
+          }, 2000)
+          onDecodeRef.current(decodedText)
+        },
+        () => {
           /* per-frame decode errors ignored */
-        })
-        // If superseded while starting (e.g. StrictMode remount), tear down.
-        if (genRef.current !== gen || scannerRef.current !== s) {
-          try {
-            if (s.isScanning) await s.stop()
-            s.clear()
-          } catch {
-            /* ignore */
-          }
-          return
         }
-        startedOnceRef.current = true
-        setDiag("")
-        setState("scanning")
-        return
-      } catch (err) {
-        lastErr = err
+      )
+      // If superseded while starting (e.g. StrictMode remount), tear down.
+      if (genRef.current !== gen || scannerRef.current !== s) {
         try {
-          if (s?.isScanning) await s!.stop()
-          s?.clear()
+          if (s.isScanning) await s.stop()
+          s.clear()
         } catch {
-          /* ignore cleanup of a failed attempt */
+          /* ignore */
         }
-        if (scannerRef.current === s) scannerRef.current = null
-        if (genRef.current !== gen) return // superseded — ignore
-        // Short pause before trying the next constraint set.
-        await new Promise((resolve) => setTimeout(resolve, 150))
+        return
       }
+      startedOnceRef.current = true
+      setState("scanning")
+    } catch (err) {
+      try {
+        if (s?.isScanning) await s!.stop()
+        s?.clear()
+      } catch {
+        /* ignore cleanup of a failed start */
+      }
+      if (scannerRef.current === s) scannerRef.current = null
+      if (genRef.current !== gen) return // superseded — ignore
+      setState("error")
+      setError(cameraErrorMessage(err))
+      setDiag(diagText(err))
     }
-
-    if (genRef.current !== gen) return
-    setState("error")
-    setError(cameraErrorMessage(lastErr))
-    setDiag(diagText(lastErr))
   }, [])
 
   const handleStartClick = React.useCallback(async () => {
@@ -259,19 +241,7 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
       setError("Browser ini tidak mendukung akses kamera (getUserMedia).")
       return
     }
-    // Ask for the camera directly inside the user gesture. This is what makes the
-    // iOS Safari permission prompt appear and keeps permission for later starts.
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-      })
-      stream.getTracks().forEach((track) => track.stop())
-    } catch (err) {
-      setState("error")
-      setError(cameraErrorMessage(err))
-      setDiag(diagText(err))
-      return
-    }
+    // Start the scanner directly inside the tap handler (a user gesture).
     await startCamera()
   }, [startCamera])
 
