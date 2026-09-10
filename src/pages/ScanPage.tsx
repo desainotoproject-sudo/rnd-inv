@@ -14,6 +14,8 @@ import {
   Save,
   X,
   Plus,
+  Minus,
+  RotateCw,
   Layers,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -62,16 +64,27 @@ function clampQty(raw: string): number {
 
 type ScannerProps = {
   onDecode: (text: string) => void
-  disabled?: boolean
+  /** When true the camera runs and scans automatically (camera mode & drawer closed). */
+  active: boolean
 }
 
-function CameraScanner({ onDecode, disabled }: ScannerProps) {
+function CameraScanner({ onDecode, active }: ScannerProps) {
   const scannerRef = React.useRef<Html5Qrcode | null>(null)
   const [state, setState] = React.useState<"idle" | "starting" | "scanning" | "error">("idle")
   const [error, setError] = React.useState<string | null>(null)
-  const decodePendingRef = React.useRef(false)
+  const decodeLockRef = React.useRef(false)
+  const lockTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Keep the latest callback without re-triggering the camera start/stop effect.
+  const onDecodeRef = React.useRef(onDecode)
+  React.useEffect(() => {
+    onDecodeRef.current = onDecode
+  }, [onDecode])
 
   const stopCamera = React.useCallback(async () => {
+    if (lockTimerRef.current) {
+      clearTimeout(lockTimerRef.current)
+      lockTimerRef.current = null
+    }
     const s = scannerRef.current
     scannerRef.current = null
     if (s) {
@@ -84,55 +97,80 @@ function CameraScanner({ onDecode, disabled }: ScannerProps) {
     }
   }, [])
 
-  const handleDecode = React.useCallback(
-    (text: string) => {
-      if (decodePendingRef.current) return
-      decodePendingRef.current = true
-      void stopCamera().finally(() => {
-        decodePendingRef.current = false
-        setState("idle")
-        setError(null)
-        onDecode(text)
-      })
-    },
-    [stopCamera, onDecode]
-  )
-
   const startCamera = React.useCallback(async () => {
-    if (scannerRef.current || disabled) return
+    if (scannerRef.current) return
     setState("starting")
     setError(null)
+    decodeLockRef.current = false
     try {
-      const s = new Html5Qrcode("scan-region")
+      // `useBarCodeDetectorIfSupported` uses the browser-native BarcodeDetector
+      // (when available) — much faster and better at small / damaged codes.
+      const s = new Html5Qrcode("scan-region", {
+        verbose: false,
+        useBarCodeDetectorIfSupported: true,
+      })
       scannerRef.current = s
       await s.start(
-        { facingMode: "environment" },
+        // Request a high-resolution rear camera so small QR codes resolve.
+        { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
         {
-          fps: 10,
-          qrbox: (w) => {
-            const size = Math.floor(Math.min(w, 320) * 0.75)
+          fps: 15,
+          // Scan almost the whole viewfinder so a small code anywhere still decodes.
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+            const min = Math.min(viewfinderWidth, viewfinderHeight)
+            const size = Math.max(160, Math.floor(min * 0.9))
             return { width: size, height: size }
           },
+          aspectRatio: 1,
+          disableFlip: false,
         },
-        (decodedText) => handleDecode(decodedText),
+        (decodedText) => {
+          if (decodeLockRef.current) return
+          decodeLockRef.current = true
+          // Auto-unlock shortly so scanning continues if no drawer opens (e.g. SKU not found).
+          if (lockTimerRef.current) clearTimeout(lockTimerRef.current)
+          lockTimerRef.current = setTimeout(() => {
+            decodeLockRef.current = false
+            lockTimerRef.current = null
+          }, 2000)
+          onDecodeRef.current(decodedText)
+        },
         () => {
           /* per-frame decode errors ignored */
         }
       )
+      // If a newer session superseded this one while starting (e.g. React StrictMode
+      // remount), stop this instance so we don't keep two camera streams alive.
+      if (scannerRef.current !== s) {
+        try {
+          await s.stop()
+          s.clear()
+        } catch {
+          /* ignore */
+        }
+        return
+      }
       setState("scanning")
     } catch (err) {
       scannerRef.current = null
       setState("error")
       setError((err as Error)?.message || "Tidak dapat mengakses kamera.")
     }
-  }, [disabled, handleDecode])
+  }, [])
 
-  // Stop camera when the scanner is unmounted
+  // The camera starts on its own and restarts after every save,
+  // so the user never needs to press a "start camera" button.
   React.useEffect(() => {
+    if (!active) {
+      void stopCamera().then(() => setState("idle"))
+      return
+    }
+    decodeLockRef.current = false
+    void startCamera()
     return () => {
       void stopCamera()
     }
-  }, [stopCamera])
+  }, [active, startCamera, stopCamera])
 
   return (
     <div className="space-y-3">
@@ -141,7 +179,7 @@ function CameraScanner({ onDecode, disabled }: ScannerProps) {
         {state === "idle" && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <Camera className="size-8" />
-            <p className="text-sm text-center px-6">
+            <p className="hidden sm:block text-sm text-center px-6">
               Arahkan kamera ke QR/barcode SKU barang.
             </p>
           </div>
@@ -162,22 +200,9 @@ function CameraScanner({ onDecode, disabled }: ScannerProps) {
         )}
       </div>
 
-      {state === "scanning" ? (
-        <Button
-          variant="outline"
-          className="w-full max-w-sm mx-auto flex"
-          onClick={() => void stopCamera().then(() => setState("idle"))}
-        >
-          <X className="size-4" /> Stop Kamera
-        </Button>
-      ) : (
-        <Button
-          className="w-full max-w-sm mx-auto flex"
-          onClick={() => void startCamera()}
-          disabled={state === "starting" || disabled}
-        >
-          {state === "starting" ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
-          Mulai Kamera
+      {state === "error" && (
+        <Button variant="outline" className="w-full max-w-sm mx-auto flex" onClick={() => void startCamera()}>
+          <RotateCw className="size-4" /> Coba Lagi
         </Button>
       )}
     </div>
@@ -220,6 +245,8 @@ export default function ScanPage() {
   const [drawer, setDrawer] = React.useState<DrawerData | null>(null)
   const [lines, setLines] = React.useState<EditableLine[]>([])
   const [saving, setSaving] = React.useState(false)
+  const [addQty, setAddQty] = React.useState("1")
+  const [addLoc, setAddLoc] = React.useState("")
   const newSeq = React.useRef(0)
 
   React.useEffect(() => {
@@ -250,6 +277,8 @@ export default function ScanPage() {
       // If the product has no stock anywhere yet, start with one empty row to add.
       setDrawer({ item, stocks })
       setLines(initLines.length ? initLines : [blankLine()])
+      setAddLoc(stocks[0]?.location_id ?? "")
+      setAddQty("1")
       setSaving(false)
     },
     [blankLine]
@@ -351,7 +380,6 @@ export default function ScanPage() {
     if (!drawer || saving) return
     setSaving(true)
     const itemId = drawer.item.id
-    const name = drawer.item.name
     const currentRows = drawer.stocks
     try {
       // Final desired state: one stock line per chosen location for this item.
@@ -411,11 +439,41 @@ export default function ScanPage() {
 
       await saveAndRebuild(itemId)
       setSaving(false)
-      const parts: string[] = []
-      if (updated > 0) parts.push(`${updated} diperbarui`)
-      if (added > 0) parts.push(`${added} lokasi baru`)
-      if (moved > 0) parts.push(`${moved} dipindah`)
-      toast.success(`"${name}" disimpan${parts.length ? ` (${parts.join(", ")})` : ""}.`)
+      // Intentionally no success toast — saving should be fast and quiet.
+    } catch (err) {
+      setSaving(false)
+      toast.error("Gagal menyimpan: " + (err as Error).message)
+    }
+  }
+
+  const handleQuickAdd = async () => {
+    if (!drawer || saving || !addLoc) return
+    const amount = Math.max(1, Number.parseInt(addQty, 10) || 1)
+    setSaving(true)
+    const existing = drawer.stocks.find((s) => s.location_id === addLoc)
+    try {
+      if (existing) {
+        const newQty = existing.quantity + amount
+        const target: StockStatus = existing.status === "kosong" ? "tersedia" : existing.status
+        const statusPatch: Partial<Pick<StockEntry, "status">> =
+          existing.status !== target ? { status: target } : {}
+        const { error } = await supabase
+          .from("stock_entries")
+          .update({ quantity: newQty, ...statusPatch })
+          .eq("id", existing.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase.from("stock_entries").insert({
+          item_id: drawer.item.id,
+          location_id: addLoc,
+          quantity: amount,
+          status: "tersedia",
+        })
+        if (error) throw error
+      }
+      setSaving(false)
+      // Close the drawer -> the scanner restarts automatically for the next scan.
+      setDrawer(null)
     } catch (err) {
       setSaving(false)
       toast.error("Gagal menyimpan: " + (err as Error).message)
@@ -466,7 +524,7 @@ export default function ScanPage() {
       {/* Scanner panel */}
       <div className="rounded-xl border p-4 space-y-4">
         {mode === "camera" ? (
-          <CameraScanner onDecode={(text) => void runLookup(text)} disabled={!!drawer} />
+          <CameraScanner onDecode={(text) => void runLookup(text)} active={!drawer} />
         ) : (
           <div className="max-w-sm space-y-2 mx-auto w-full">
             <Label htmlFor="manual-sku">Ketik / tempel SKU</Label>
@@ -539,6 +597,62 @@ export default function ScanPage() {
               {/* Scrollable body */}
               <div className="flex-1 space-y-4 overflow-y-auto px-5 py-3">
                 <Separator />
+
+                {/* Quick add: scan -> tambah jumlah & simpan -> lanjut scan */}
+                <div className="space-y-3 rounded-xl border bg-muted/30 p-3">
+                  <div className="flex items-center gap-2">
+                    <Select value={addLoc || undefined} onValueChange={setAddLoc}>
+                      <SelectTrigger className="h-10 min-w-0 flex-1 bg-background">
+                        <SelectValue placeholder="Pilih lokasi" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map((l) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {locLabel(l)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <div className="flex shrink-0 items-center rounded-lg border bg-background">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-10 rounded-r-none"
+                        onClick={() => setAddQty(String(Math.max(1, (Number.parseInt(addQty, 10) || 1) - 1)))}
+                        aria-label="Kurangi"
+                      >
+                        <Minus className="size-4" />
+                      </Button>
+                      <Input
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={addQty}
+                        onChange={(e) => setAddQty(e.target.value)}
+                        aria-label="Jumlah tambah"
+                        className="h-10 w-14 rounded-none border-x text-center"
+                      />
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-10 rounded-l-none"
+                        onClick={() => setAddQty(String((Number.parseInt(addQty, 10) || 0) + 1))}
+                        aria-label="Tambah"
+                      >
+                        <Plus className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Button
+                    className="w-full"
+                    onClick={() => void handleQuickAdd()}
+                    disabled={saving || !addLoc}
+                  >
+                    <Plus className="size-4" /> Tambah Jumlah & Simpan
+                  </Button>
+                </div>
 
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5 text-sm font-medium">
