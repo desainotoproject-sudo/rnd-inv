@@ -128,17 +128,21 @@ export default function ItemsPage() {
     const [itemsRes, locationsRes, stockRes] = await Promise.all([
       supabase.from("items").select("*").order("name"),
       supabase.from("locations").select("*, cabinet:cabinets(*)").order("code"),
-      supabase.from("stock_entries").select("item_id, quantity, location_id, location:locations(code, cabinet:cabinets(code))"),
+      // Plain columns only (no nested embed) — more robust across projects/RLS.
+      supabase.from("stock_entries").select("item_id, quantity, location_id"),
     ])
     setItems(itemsRes.data ?? [])
-    setLocations((locationsRes.data ?? []) as LocationWithCabinet[])
+    const locs = (locationsRes.data ?? []) as LocationWithCabinet[]
+    setLocations(locs)
 
-    // Build stock summary per item
+    // Build stock summary per item, deriving the location code locally.
+    const locById = new Map(locs.map((l) => [l.id, l]))
     const map = new Map<string, StockSummary>()
-    for (const s of (stockRes.data ?? []) as any[]) {
+    for (const s of (stockRes.data ?? []) as { item_id: string; quantity: number | null; location_id: string }[]) {
       const existing = map.get(s.item_id) ?? { total: 0, locationCodes: [] }
       existing.total += s.quantity ?? 0
-      const code = `${s.location?.cabinet?.code ?? ""}${s.location?.code ?? ""}`
+      const loc = locById.get(s.location_id)
+      const code = loc ? `${loc.cabinet?.code ?? ""}${loc.code}` : ""
       if (code && !existing.locationCodes.includes(code)) existing.locationCodes.push(code)
       map.set(s.item_id, existing)
     }
