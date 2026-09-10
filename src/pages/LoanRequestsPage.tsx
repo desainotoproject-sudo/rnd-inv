@@ -26,19 +26,27 @@ import {
 } from "@/components/ui/select"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 
+type LoanRequestItem = {
+  id: string
+  item_name: string
+  item_sku: string | null
+  quantity: number
+}
+
 type LoanRequest = {
   id: string
   code: string
   item_id: string | null
-  item_name: string
+  item_name: string | null
   item_sku: string | null
-  quantity: number
+  quantity: number | null
   borrower_name: string
   return_date: string | null
   status: string
   prepared: boolean
   notes: string | null
   created_at: string
+  items?: LoanRequestItem[]
 }
 
 const STATUS_LABEL: Record<string, { label: string; className: string }> = {
@@ -59,7 +67,7 @@ export default function LoanRequestsPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from("loan_requests")
-      .select("*")
+      .select("*, items:loan_request_items(*)")
       .order("created_at", { ascending: false })
     if (error) toast.error("Gagal memuat pengajuan: " + error.message)
     setRequests((data ?? []) as LoanRequest[])
@@ -73,10 +81,12 @@ export default function LoanRequestsPage() {
   const filtered = React.useMemo(() => {
     const q = search.trim().toLowerCase()
     return requests.filter((r) => {
+      const itemNames = (r.items ?? []).map((it) => it.item_name).join(" ")
       const matchSearch =
         !q ||
         r.code.toLowerCase().includes(q) ||
-        r.item_name.toLowerCase().includes(q) ||
+        (r.item_name ?? "").toLowerCase().includes(q) ||
+        itemNames.toLowerCase().includes(q) ||
         r.borrower_name.toLowerCase().includes(q) ||
         (r.item_sku ?? "").toLowerCase().includes(q)
       const matchStatus = filterStatus === "all" || r.status === filterStatus
@@ -172,10 +182,21 @@ export default function LoanRequestsPage() {
 
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">
-                      {r.item_name}
-                      <span className="ml-1 text-muted-foreground">× {r.quantity}</span>
-                    </p>
+                    {r.items && r.items.length > 0 ? (
+                      <div className="space-y-0.5">
+                        {r.items.map((it) => (
+                          <p key={it.id} className="truncate text-sm font-medium">
+                            {it.item_name}
+                            <span className="ml-1 text-muted-foreground">× {it.quantity}</span>
+                          </p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="truncate text-sm font-medium">
+                        {r.item_name}
+                        {r.quantity ? <span className="ml-1 text-muted-foreground">× {r.quantity}</span> : null}
+                      </p>
+                    )}
                     <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1"><User className="size-3" />{r.borrower_name}</span>
                       {r.return_date && (

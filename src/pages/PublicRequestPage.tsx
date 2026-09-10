@@ -11,6 +11,9 @@ import {
   PackageX,
   ClipboardList,
   CalendarDays,
+  Minus,
+  Plus,
+  ShoppingCart,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,9 +60,8 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
 function friendlyError(msg: string): string {
   if (/could not find the function|does not exist|schema cache|PGRST202/i.test(msg)) {
     return (
-      "Fitur publik belum aktif di server. Jalankan migrasi " +
-      "'20260910090000_create_loan_requests.sql' di Supabase SQL Editor, " +
-      "lalu reload schema PostgREST (Notification: NOTIFY pgrst, 'reload schema';)."
+      "Fitur publik belum aktif di server. Jalankan migrasi terbaru di Supabase " +
+      "(lihat folder supabase/migrations), lalu reload schema (NOTIFY pgrst, 'reload schema';)."
     )
   }
   return msg
@@ -71,10 +73,12 @@ export default function PublicRequestPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState("")
 
-  const [selected, setSelected] = React.useState<AvailableItem | null>(null)
+  // cart: item_id -> quantity
+  const [cart, setCart] = React.useState<Record<string, number>>({})
+
+  const [formOpen, setFormOpen] = React.useState(false)
   const [borrower, setBorrower] = React.useState("")
   const [returnDate, setReturnDate] = React.useState("")
-  const [qty, setQty] = React.useState("1")
   const [notes, setNotes] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
   const [formError, setFormError] = React.useState("")
@@ -111,34 +115,74 @@ export default function PublicRequestPage() {
 
   const { shown, hasMore, sentinelRef } = useInfiniteRows(filtered, 15)
 
-  const openForm = (item: AvailableItem) => {
-    setSelected(item)
+  const availableOf = (id: string) => items.find((i) => i.item_id === id)?.available ?? 0
+
+  const inc = (item: AvailableItem) =>
+    setCart((prev) => {
+      const current = prev[item.item_id] ?? 0
+      if (current >= item.available) return prev
+      return { ...prev, [item.item_id]: current + 1 }
+    })
+
+  const dec = (id: string) =>
+    setCart((prev) => {
+      const next = { ...prev }
+      const current = next[id] ?? 0
+      if (current <= 1) delete next[id]
+      else next[id] = current - 1
+      return next
+    })
+
+  const setQty = (id: string, raw: string) => {
+    const max = availableOf(id)
+    const n = Math.max(0, Math.min(max, Number.parseInt(raw, 10) || 0))
+    setCart((prev) => {
+      const next = { ...prev }
+      if (n <= 0) delete next[id]
+      else next[id] = n
+      return next
+    })
+  }
+
+  const cartItems = React.useMemo(
+    () =>
+      items
+        .filter((i) => (cart[i.item_id] ?? 0) > 0)
+        .map((i) => ({ item: i, qty: cart[i.item_id] })),
+    [items, cart]
+  )
+  const totalItems = cartItems.reduce((a, c) => a + c.qty, 0)
+
+  const openForm = () => {
     setBorrower("")
     setReturnDate("")
-    setQty("1")
     setNotes("")
     setFormError("")
     setResultCode(null)
+    setFormOpen(true)
   }
 
   const submit = async () => {
-    if (!selected) return
     if (!borrower.trim()) {
       setFormError("Nama peminjam wajib diisi.")
+      return
+    }
+    if (cartItems.length === 0) {
+      setFormError("Pilih minimal satu barang.")
       return
     }
     setSubmitting(true)
     setFormError("")
     try {
       const { data, error } = await supabase.rpc("public_create_loan_request", {
-        p_item_id: selected.item_id,
         p_borrower_name: borrower.trim(),
         p_return_date: returnDate || null,
-        p_quantity: Math.max(1, Number.parseInt(qty, 10) || 1),
         p_notes: notes.trim() || null,
+        p_items: cartItems.map((c) => ({ item_id: c.item.item_id, quantity: c.qty })),
       })
       if (error) throw new Error(error.message)
       setResultCode(String(data))
+      setCart({})
       void load()
     } catch (e) {
       setFormError(friendlyError((e as Error).message))
@@ -172,12 +216,12 @@ export default function PublicRequestPage() {
           </div>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">Pinjam Barang RND</p>
-            <p className="hidden text-xs text-muted-foreground sm:block">Tanpa login — ajukan & cek status</p>
+            <p className="hidden text-xs text-muted-foreground sm:block">Tanpa login — pilih barang lalu ajukan</p>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className={`mx-auto max-w-3xl space-y-6 px-4 py-6 ${cartItems.length > 0 ? "pb-28" : ""}`}>
         {/* Check status */}
         <section className="space-y-3 rounded-2xl border p-4">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -264,32 +308,59 @@ export default function PublicRequestPage() {
             </p>
           ) : filtered.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              Belum ada barang tersedia. Barang tampil di sini bila punya stok dengan status{" "}
-              <span className="font-medium text-foreground">&quot;Tersedia&quot;</span> dan jumlah{" "}
-              <span className="font-medium text-foreground">&gt; 0</span>.
+              Belum ada barang tersedia. Barang tampil di sini bila punya stok dengan jumlah &gt; 0.
             </p>
           ) : (
             <div className="space-y-2">
-              {shown.map((item) => (
-                <div key={item.item_id} className="flex items-center gap-3 rounded-xl border p-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{item.name}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {item.sku ? <span className="font-mono">{item.sku}</span> : null}
-                      {item.sku && item.category ? " · " : ""}
-                      {item.category ?? ""}
-                    </p>
+              {shown.map((item) => {
+                const qty = cart[item.item_id] ?? 0
+                const atMax = qty >= item.available
+                return (
+                  <div key={item.item_id} className="flex items-center gap-3 rounded-xl border p-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{item.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {item.sku ? <span className="font-mono">{item.sku}</span> : null}
+                        {item.sku && item.category ? " · " : ""}
+                        {item.category ?? ""}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        Tersedia {item.available} {item.unit}
+                      </p>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => dec(item.item_id)}
+                        disabled={qty <= 0}
+                        aria-label="Kurangi"
+                      >
+                        <Minus className="size-3.5" />
+                      </Button>
+                      <Input
+                        value={qty}
+                        onChange={(e) => setQty(item.item_id, e.target.value)}
+                        inputMode="numeric"
+                        aria-label="Jumlah"
+                        className="h-8 w-12 text-center"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => inc(item)}
+                        disabled={atMax}
+                        aria-label="Tambah"
+                      >
+                        <Plus className="size-3.5" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums">{item.available}</p>
-                    <p className="text-[10px] text-muted-foreground">{item.unit}</p>
-                  </div>
-                  <Button size="sm" onClick={() => openForm(item)}>
-                    <span className="hidden sm:inline">Pinjam</span>
-                    <Package className="size-4 sm:hidden" />
-                  </Button>
-                </div>
-              ))}
+                )
+              })}
 
               {filtered.length > 0 && (
                 <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
@@ -308,92 +379,100 @@ export default function PublicRequestPage() {
         </section>
       </main>
 
-      {/* Request form */}
-      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="sm:max-w-md">
-          {selected && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-base">{selected.name}</DialogTitle>
-                <DialogDescription>
-                  {selected.sku ? `SKU ${selected.sku} · ` : ""}Tersedia {selected.available} {selected.unit}
-                </DialogDescription>
-              </DialogHeader>
+      {/* Sticky cart bar */}
+      {cartItems.length > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <ShoppingCart className="size-4 text-primary" />
+                {cartItems.length} jenis · {totalItems} item
+              </p>
+            </div>
+            <Button onClick={openForm}>Ajukan Pinjam</Button>
+          </div>
+        </div>
+      )}
 
-              {resultCode ? (
-                <div className="space-y-3 py-2 text-center">
-                  <CheckCircle2 className="mx-auto size-10 text-green-500" />
-                  <p className="text-sm font-medium">Pengajuan terkirim!</p>
-                  <p className="text-xs text-muted-foreground">
-                    Simpan kode ini untuk cek status & keperluan audit:
-                  </p>
-                  <p className="rounded-lg border bg-muted/40 py-2 font-mono text-sm font-semibold">{resultCode}</p>
-                  <Button className="w-full" onClick={() => setSelected(null)}>Selesai</Button>
+      {/* Request form */}
+      <Dialog
+        open={formOpen}
+        onOpenChange={(open) => {
+          setFormOpen(open)
+          if (!open) setResultCode(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base">Ajukan Pinjam</DialogTitle>
+            <DialogDescription>
+              {resultCode ? "Pengajuan terkirim." : `${cartItems.length} jenis barang dipilih.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          {resultCode ? (
+            <div className="space-y-3 py-2 text-center">
+              <CheckCircle2 className="mx-auto size-10 text-green-500" />
+              <p className="text-sm font-medium">Pengajuan terkirim!</p>
+              <p className="text-xs text-muted-foreground">Simpan kode ini untuk cek status & keperluan audit:</p>
+              <p className="rounded-lg border bg-muted/40 py-2 font-mono text-sm font-semibold">{resultCode}</p>
+              <Button className="w-full" onClick={() => setFormOpen(false)}>Selesai</Button>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-4">
+                {/* Selected items */}
+                <div className="space-y-1.5 rounded-xl border bg-muted/30 p-3">
+                  {cartItems.map(({ item, qty }) => (
+                    <div key={item.item_id} className="flex items-center justify-between gap-2 text-sm">
+                      <span className="min-w-0 truncate">{item.name}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {qty} {item.unit}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ) : (
-                <>
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="borrower">Nama peminjam <span className="text-destructive">*</span></Label>
-                      <Input
-                        id="borrower"
-                        placeholder="Nama lengkap"
-                        value={borrower}
-                        onChange={(e) => setBorrower(e.target.value)}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="return" className="flex items-center gap-1.5">
-                          <CalendarDays className="size-3.5" /> Tgl dikembalikan
-                        </Label>
-                        <Input
-                          id="return"
-                          type="date"
-                          value={returnDate}
-                          onChange={(e) => setReturnDate(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="qty">Jumlah ({selected.unit})</Label>
-                        <Input
-                          id="qty"
-                          type="number"
-                          min={1}
-                          max={selected.available}
-                          inputMode="numeric"
-                          value={qty}
-                          onChange={(e) => setQty(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="notes">Catatan (opsional)</Label>
-                      <Textarea
-                        id="notes"
-                        rows={2}
-                        placeholder="Divisi / keperluan..."
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                      />
-                    </div>
-                    {formError && (
-                      <p className="flex items-center gap-2 text-sm text-destructive">
-                        <AlertTriangle className="size-4" /> {formError}
-                      </p>
-                    )}
-                  </div>
-                  <DialogFooter className="gap-2 sm:gap-0">
-                    <Button variant="outline" onClick={() => setSelected(null)} disabled={submitting}>
-                      Batal
-                    </Button>
-                    <Button onClick={() => void submit()} disabled={submitting}>
-                      {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
-                      Ajukan Pinjam
-                    </Button>
-                  </DialogFooter>
-                </>
-              )}
+
+                <div className="space-y-2">
+                  <Label htmlFor="borrower">Nama peminjam <span className="text-destructive">*</span></Label>
+                  <Input
+                    id="borrower"
+                    placeholder="Nama lengkap"
+                    value={borrower}
+                    onChange={(e) => setBorrower(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="return" className="flex items-center gap-1.5">
+                    <CalendarDays className="size-3.5" /> Tanggal dikembalikan
+                  </Label>
+                  <Input id="return" type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="notes">Catatan (opsional)</Label>
+                  <Textarea
+                    id="notes"
+                    rows={2}
+                    placeholder="Divisi / keperluan..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+                {formError && (
+                  <p className="flex items-center gap-2 text-sm text-destructive">
+                    <AlertTriangle className="size-4" /> {formError}
+                  </p>
+                )}
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="outline" onClick={() => setFormOpen(false)} disabled={submitting}>
+                  Batal
+                </Button>
+                <Button onClick={() => void submit()} disabled={submitting}>
+                  {submitting ? <Loader2 className="size-4 animate-spin" /> : null}
+                  Ajukan Pinjam
+                </Button>
+              </DialogFooter>
             </>
           )}
         </DialogContent>
