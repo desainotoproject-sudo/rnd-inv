@@ -65,12 +65,29 @@ export default function LoanRequestsPage() {
 
   const loadData = React.useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
+    let data: unknown = null
+    let errorMsg: string | null = null
+
+    // Prefer the row with its items; fall back to the plain table if the
+    // multi-item migration hasn't been applied on this project yet.
+    const withItems = await supabase
       .from("loan_requests")
       .select("*, items:loan_request_items(*)")
       .order("created_at", { ascending: false })
-    if (error) toast.error("Gagal memuat pengajuan: " + error.message)
-    setRequests((data ?? []) as LoanRequest[])
+
+    if (withItems.error) {
+      const plain = await supabase
+        .from("loan_requests")
+        .select("*")
+        .order("created_at", { ascending: false })
+      data = plain.data
+      errorMsg = plain.error?.message ?? null
+    } else {
+      data = withItems.data
+    }
+
+    if (errorMsg) toast.error("Gagal memuat pengajuan: " + errorMsg)
+    setRequests(((data as LoanRequest[] | null) ?? []))
     setLoading(false)
   }, [])
 
@@ -192,8 +209,12 @@ export default function LoanRequestsPage() {
                         ))}
                       </div>
                     ) : (
-                      <p className="truncate text-sm font-medium">
-                        {r.item_name}
+                      <p className="text-sm font-medium">
+                        {r.item_name ?? (
+                          <span className="text-muted-foreground">
+                            Item tidak terbaca — pastikan migrasi multi-item sudah dijalankan di Supabase.
+                          </span>
+                        )}
                         {r.quantity ? <span className="ml-1 text-muted-foreground">× {r.quantity}</span> : null}
                       </p>
                     )}

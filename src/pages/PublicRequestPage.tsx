@@ -14,6 +14,7 @@ import {
   Minus,
   Plus,
   ShoppingCart,
+  Copy,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -67,6 +68,26 @@ function friendlyError(msg: string): string {
   return msg
 }
 
+const CODES_KEY = "rnd_loan_codes"
+
+function loadCodes(): string[] {
+  try {
+    const raw = localStorage.getItem(CODES_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []
+  } catch {
+    return []
+  }
+}
+
+function saveCodes(codes: string[]) {
+  try {
+    localStorage.setItem(CODES_KEY, JSON.stringify(codes.slice(0, 50)))
+  } catch {
+    /* ignore quota/privacy errors */
+  }
+}
+
 export default function PublicRequestPage() {
   const [items, setItems] = React.useState<AvailableItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -88,6 +109,11 @@ export default function PublicRequestPage() {
   const [checking, setChecking] = React.useState(false)
   const [checkError, setCheckError] = React.useState("")
   const [checkResult, setCheckResult] = React.useState<RequestStatus | null>(null)
+  const [savedCodes, setSavedCodes] = React.useState<string[]>([])
+
+  React.useEffect(() => {
+    setSavedCodes(loadCodes())
+  }, [])
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -181,7 +207,13 @@ export default function PublicRequestPage() {
         p_items: cartItems.map((c) => ({ item_id: c.item.item_id, quantity: c.qty })),
       })
       if (error) throw new Error(error.message)
-      setResultCode(String(data))
+      const code = String(data)
+      setResultCode(code)
+      setSavedCodes((prev) => {
+        const next = [code, ...prev.filter((c) => c !== code)]
+        saveCodes(next)
+        return next
+      })
       setCart({})
       void load()
     } catch (e) {
@@ -190,8 +222,16 @@ export default function PublicRequestPage() {
     setSubmitting(false)
   }
 
-  const checkStatus = async () => {
-    const code = checkCode.trim()
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const checkStatus = async (codeArg?: string) => {
+    const code = (codeArg ?? checkCode).trim()
     if (!code) return
     setChecking(true)
     setCheckError("")
@@ -284,6 +324,33 @@ export default function PublicRequestPage() {
             </div>
           )}
         </section>
+
+        {/* My submissions (kept on this device) */}
+        {savedCodes.length > 0 && (
+          <section className="space-y-2 rounded-2xl border p-4">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <ClipboardList className="size-4 text-primary" />
+              Pengajuan saya
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {savedCodes.map((c) => (
+                <Button
+                  key={c}
+                  variant="outline"
+                  size="sm"
+                  className="font-mono"
+                  onClick={() => {
+                    setCheckCode(c)
+                    void checkStatus(c)
+                  }}
+                >
+                  {c}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">Ketuk kode untuk melihat status terbaru.</p>
+          </section>
+        )}
 
         {/* Available items */}
         <section className="space-y-3">
@@ -416,6 +483,7 @@ export default function PublicRequestPage() {
               <p className="text-sm font-medium">Pengajuan terkirim!</p>
               <p className="text-xs text-muted-foreground">Simpan kode ini untuk cek status &amp; keperluan audit:</p>
               <p className="rounded-lg border bg-muted/40 py-2 font-mono text-sm font-semibold break-all">{resultCode}</p>
+              <p className="text-[11px] text-muted-foreground">Kode juga tersimpan di bagian "Pengajuan saya".</p>
             </div>
           ) : (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
@@ -472,9 +540,18 @@ export default function PublicRequestPage() {
 
           <DialogFooter className="flex-col-reverse gap-2 border-t px-4 py-3 sm:flex-row sm:justify-end">
             {resultCode ? (
-              <Button className="w-full sm:w-auto" onClick={() => setFormOpen(false)}>
-                Selesai
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => void copyCode(resultCode)}
+                >
+                  <Copy className="size-4" /> Salin kode
+                </Button>
+                <Button className="w-full sm:w-auto" onClick={() => setFormOpen(false)}>
+                  Selesai
+                </Button>
+              </>
             ) : (
               <>
                 <Button variant="outline" onClick={() => setFormOpen(false)} disabled={submitting}>
