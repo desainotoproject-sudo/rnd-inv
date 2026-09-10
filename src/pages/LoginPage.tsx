@@ -1,5 +1,5 @@
 import * as React from "react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { Package, Eye, EyeOff, Loader2 } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { Button } from "@/components/ui/button"
@@ -114,6 +114,12 @@ export default function LoginPage() {
             </form>
           </CardContent>
         </Card>
+
+        <div className="text-center">
+          <Link to="/request" className="text-sm font-medium text-primary hover:underline">
+            Lihat & ajukan pinjam barang (tanpa login)
+          </Link>
+        </div>
 
         <p className="text-center text-xs text-muted-foreground">
           Belum punya akun? Hubungi tim RND untuk pembuatan akun.

@@ -15,6 +15,8 @@ import HistoryPage from "@/pages/HistoryPage"
 import AdminLoansPage from "@/pages/AdminLoansPage"
 import QuickEditPage from "@/pages/QuickEditPage"
 import ScanPage from "@/pages/ScanPage"
+import PublicRequestPage from "@/pages/PublicRequestPage"
+import LoanRequestsPage from "@/pages/LoanRequestsPage"
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Public (no login) route for guests to request a loan */}
+          <Route path="/request" element={<PublicRequestPage />} />
           <Route
             element={
               <AuthGuard>
@@ -39,6 +43,7 @@ export default function App() {
             <Route path="/admin-loans" element={<AuthGuard requireRole="rnd"><AdminLoansPage /></AuthGuard>} />
             <Route path="/quick-edit" element={<AuthGuard requireRole="rnd"><QuickEditPage /></AuthGuard>} />
             <Route path="/scan" element={<AuthGuard requireRole="rnd"><ScanPage /></AuthGuard>} />
+            <Route path="/loan-requests" element={<AuthGuard requireRole="rnd"><LoanRequestsPage /></AuthGuard>} />
             {/* Shared routes (role-based filtering inside) */}
             <Route path="/history" element={<HistoryPage />} />
             {/* Guest routes */}
