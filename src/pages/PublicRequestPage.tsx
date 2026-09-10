@@ -54,7 +54,7 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   menunggu_approval: { label: "Menunggu approval", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
   disetujui: { label: "Disetujui", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
   ditolak: { label: "Ditolak", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-  selesai: { label: "Selesai", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  selesai: { label: "Dikembalikan", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
 }
 
 /** Turn low-level PostgREST errors into actionable messages. */
@@ -487,13 +487,16 @@ export default function PublicRequestPage() {
             </div>
           ) : (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
-              {/* Selected items */}
-              <div className="space-y-1.5 rounded-xl border bg-muted/30 p-3">
+              {/* Selected items — each in its own card */}
+              <div className="space-y-1.5">
                 {cartItems.map(({ item, qty }) => (
-                  <div key={item.item_id} className="flex items-center justify-between gap-2 text-sm">
-                    <span className="min-w-0 truncate">{item.name}</span>
+                  <div
+                    key={item.item_id}
+                    className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 truncate font-medium">{item.name}</span>
                     <span className="shrink-0 tabular-nums text-muted-foreground">
-                      {qty} {item.unit}
+                      × {qty} {item.unit}
                     </span>
                   </div>
                 ))}

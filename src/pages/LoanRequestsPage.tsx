@@ -53,7 +53,7 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   menunggu_approval: { label: "Menunggu", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
   disetujui: { label: "Disetujui", className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
   ditolak: { label: "Ditolak", className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
-  selesai: { label: "Selesai", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  selesai: { label: "Dikembalikan", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
 }
 
 export default function LoanRequestsPage() {
@@ -157,7 +157,7 @@ export default function LoanRequestsPage() {
             <SelectItem value="menunggu_approval">Menunggu</SelectItem>
             <SelectItem value="disetujui">Disetujui</SelectItem>
             <SelectItem value="ditolak">Ditolak</SelectItem>
-            <SelectItem value="selesai">Selesai</SelectItem>
+            <SelectItem value="selesai">Dikembalikan</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -200,12 +200,15 @@ export default function LoanRequestsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     {r.items && r.items.length > 0 ? (
-                      <div className="space-y-0.5">
+                      <div className="space-y-1.5">
                         {r.items.map((it) => (
-                          <p key={it.id} className="truncate text-sm font-medium">
-                            {it.item_name}
-                            <span className="ml-1 text-muted-foreground">× {it.quantity}</span>
-                          </p>
+                          <div
+                            key={it.id}
+                            className="flex items-center justify-between gap-2 rounded-lg border bg-card px-2.5 py-1.5"
+                          >
+                            <span className="min-w-0 truncate text-sm font-medium">{it.item_name}</span>
+                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">× {it.quantity}</span>
+                          </div>
                         ))}
                       </div>
                     ) : (
@@ -229,41 +232,59 @@ export default function LoanRequestsPage() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busyId === r.id}
-                    onClick={() => void patch(r.id, { prepared: !r.prepared })}
-                  >
-                    {busyId === r.id ? <Loader2 className="size-4 animate-spin" /> : r.prepared ? <PackageX className="size-4" /> : <PackageCheck className="size-4" />}
-                    <span className="hidden sm:inline">{r.prepared ? "Batal siapkan" : "Tandai disiapkan"}</span>
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={busyId === r.id || r.status === "disetujui"}
-                    onClick={() => void patch(r.id, { status: "disetujui", prepared: true })}
-                  >
-                    <Check className="size-4" />
-                    <span className="hidden sm:inline">Setujui</span>
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={busyId === r.id || r.status === "ditolak"}
-                    onClick={() => void patch(r.id, { status: "ditolak" })}
-                  >
-                    <X className="size-4" />
-                    <span className="hidden sm:inline">Tolak</span>
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={busyId === r.id || r.status === "selesai"}
-                    onClick={() => void patch(r.id, { status: "selesai" })}
-                  >
-                    <CheckCheck className="size-4" />
-                    <span className="hidden sm:inline">Selesai</span>
-                  </Button>
+                  {r.status === "menunggu_approval" && (
+                    <>
+                      <Button
+                        size="sm"
+                        disabled={busyId === r.id}
+                        onClick={() => void patch(r.id, { status: "disetujui" })}
+                      >
+                        <Check className="size-4" />
+                        <span className="hidden sm:inline">Setujui</span>
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={busyId === r.id}
+                        onClick={() => void patch(r.id, { status: "ditolak" })}
+                      >
+                        <X className="size-4" />
+                        <span className="hidden sm:inline">Tolak</span>
+                      </Button>
+                    </>
+                  )}
+
+                  {/* Only after approval can the item be marked as prepared */}
+                  {r.status === "disetujui" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busyId === r.id}
+                      onClick={() => void patch(r.id, { prepared: !r.prepared })}
+                    >
+                      {busyId === r.id ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : r.prepared ? (
+                        <PackageX className="size-4" />
+                      ) : (
+                        <PackageCheck className="size-4" />
+                      )}
+                      <span className="hidden sm:inline">{r.prepared ? "Batal siapkan" : "Tandai disiapkan"}</span>
+                    </Button>
+                  )}
+
+                  {/* Return only makes sense once the item has been prepared */}
+                  {r.status === "disetujui" && r.prepared && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={busyId === r.id}
+                      onClick={() => void patch(r.id, { status: "selesai" })}
+                    >
+                      <CheckCheck className="size-4" />
+                      <span className="hidden sm:inline">Dikembalikan</span>
+                    </Button>
+                  )}
                 </div>
               </div>
             )
