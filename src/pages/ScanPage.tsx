@@ -9,6 +9,7 @@ import {
   QrCode,
   Camera,
   Keyboard,
+  ImagePlus,
   CheckCircle2,
   AlertTriangle,
   Save,
@@ -231,7 +232,9 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
           fps: 10,
           qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
             const min = Math.min(viewfinderWidth, viewfinderHeight)
-            const size = Math.max(160, Math.floor(min * 0.8))
+            // A slightly smaller box encourages the user to bring the code closer,
+            // which gives a dense QR more pixels and improves decoding.
+            const size = Math.max(150, Math.floor(min * 0.7))
             return { width: size, height: size }
           },
           disableFlip: false,
@@ -413,6 +416,7 @@ export default function ScanPage() {
   const [addQty, setAddQty] = React.useState("1")
   const [addLoc, setAddLoc] = React.useState("")
   const newSeq = React.useRef(0)
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
   React.useEffect(() => {
     supabase
@@ -490,6 +494,31 @@ export default function ScanPage() {
     setManualLoading(true)
     await runLookup(manualSku)
     setManualLoading(false)
+  }
+
+  // Decode from a still photo — most reliable for small/dense labels (especially iOS,
+  // where the video-frame JS decoder struggles but a full-res photo decodes fine).
+  const handleFileScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setLookup({ status: "searching", raw: file.name })
+    try {
+      const scanner = new Html5Qrcode("scan-file-region")
+      const text = await scanner.scanFile(file, false)
+      try {
+        scanner.clear()
+      } catch {
+        /* ignore */
+      }
+      await runLookup(text)
+    } catch {
+      setLookup({
+        status: "error",
+        raw: file.name,
+        msg: "Tidak bisa membaca QR dari foto. Coba foto lebih dekat, fokus, dan pencahayaan cukup.",
+      })
+    }
   }
 
   const updateLine = (key: string, patch: Partial<EditableLine>) => {
@@ -712,6 +741,22 @@ export default function ScanPage() {
             </div>
           </div>
         )}
+
+        {/* Scan from a photo (reliable fallback for small / dense labels) */}
+        <div className="flex justify-center">
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <ImagePlus className="size-4" />
+            <span className="hidden sm:inline">Scan dari Foto</span>
+          </Button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => void handleFileScan(e)}
+        />
+        <div id="scan-file-region" className="hidden" />
 
         {/* Lookup status */}
         {lookup?.status === "searching" && (
