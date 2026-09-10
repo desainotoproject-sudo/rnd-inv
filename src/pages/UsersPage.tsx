@@ -156,14 +156,14 @@ export default function UsersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Manajemen Akun</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Manajemen Akun</h1>
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Kelola akun pengguna — buat akun untuk divisi lain (Guest).
           </p>
         </div>
         <Button onClick={() => { setForm(emptyForm); setFormError(""); setDialogOpen(true) }}>
           <Plus />
-          Buat Akun
+          <span className="hidden sm:inline">Buat Akun</span>
         </Button>
       </div>
 

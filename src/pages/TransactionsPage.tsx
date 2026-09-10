@@ -220,14 +220,14 @@ export default function TransactionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Pengajuan Saya</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Pengajuan Saya</h1>
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Ajukan pinjam atau titip barang, dan pantau status pengajuan Anda.
           </p>
         </div>
         <Button onClick={openCreate}>
           <Plus />
-          Ajukan Barang
+          <span className="hidden sm:inline">Ajukan Barang</span>
         </Button>
       </div>
 

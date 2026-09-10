@@ -171,8 +171,8 @@ export default function ApprovalsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Approval Pengajuan</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Approval Pengajuan</h1>
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Tinjau dan setujui atau tolak pengajuan pinjam/titip dari Guest.
           </p>
         </div>

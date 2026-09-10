@@ -302,25 +302,25 @@ export default function ItemsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Master Barang</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Master Barang</h1>
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Kelola data barang beserta lokasi dan stok penyimpanannya.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => setImportOpen(true)}>
             <Upload />
-            Import Excel
+            <span className="hidden sm:inline">Import Excel</span>
           </Button>
           {selectedIds.size > 0 && (
             <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)}>
               <Trash2 />
-              Hapus ({selectedIds.size})
+              <span className="hidden sm:inline">Hapus ({selectedIds.size})</span>
             </Button>
           )}
           <Button onClick={openCreate}>
             <Plus />
-            Tambah Barang
+            <span className="hidden sm:inline">Tambah Barang</span>
           </Button>
         </div>
       </div>

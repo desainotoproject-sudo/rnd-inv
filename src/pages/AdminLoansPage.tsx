@@ -365,8 +365,8 @@ export default function AdminLoansPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Transaksi Pinjam / Titip</h1>
-          <p className="text-sm text-muted-foreground">Input langsung oleh admin RND untuk peminjam/penitip eksternal.</p>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Transaksi Pinjam / Titip</h1>
+          <p className="hidden sm:block text-sm text-muted-foreground">Input langsung oleh admin RND untuk peminjam/penitip eksternal.</p>
         </div>
       </div>
 

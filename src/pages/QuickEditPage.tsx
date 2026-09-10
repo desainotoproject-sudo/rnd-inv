@@ -407,11 +407,11 @@ export default function QuickEditPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2">
             <Zap className="size-6 text-primary" />
             Edit Cepat
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Cari barang (tahan typo & tanpa spasi), lalu edit langsung di tabel. Perubahan tersimpan otomatis.
           </p>
         </div>
@@ -421,7 +421,7 @@ export default function QuickEditPage() {
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm">
                   <RotateCw className="size-4" />
-                  Reset ({dirtyCount})
+                  <span className="hidden sm:inline">Reset ({dirtyCount})</span>
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -459,7 +459,7 @@ export default function QuickEditPage() {
           )}
           <Button size="sm" onClick={handleSaveAll} disabled={dirtyCount === 0}>
             <CheckCircle2 className="size-4" />
-            Simpan Semua ({dirtyCount})
+            <span className="hidden sm:inline">Simpan Semua ({dirtyCount})</span>
           </Button>
         </div>
       </div>

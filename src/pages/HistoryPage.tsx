@@ -113,8 +113,8 @@ export default function HistoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Riwayat Transaksi</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Riwayat Transaksi</h1>
+        <p className="hidden sm:block text-sm text-muted-foreground mt-1">
           {isRND
             ? "Seluruh riwayat pengajuan pinjam dan titip barang."
             : "Riwayat pengajuan pinjam dan titip barang Anda."}

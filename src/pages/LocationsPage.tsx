@@ -201,14 +201,14 @@ export default function LocationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Master Lokasi</h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Master Lokasi</h1>
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Kelola lemari dan sub-lokasi penyimpanan barang RND.
           </p>
         </div>
         <Button onClick={openCreateCabinet}>
           <Plus />
-          Tambah Lemari
+          <span className="hidden sm:inline">Tambah Lemari</span>
         </Button>
       </div>
 

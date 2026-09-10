@@ -165,10 +165,10 @@ export default function DashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
           Selamat datang, {profile?.full_name?.split(" ")[0]}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <p className="hidden sm:block text-sm text-muted-foreground mt-1">
           {isRND
             ? "Kelola inventaris RND — barang, lokasi, dan akun pengguna."
             : "Lihat ketersediaan inventaris RND secara real-time."}
