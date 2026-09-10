@@ -1,6 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Prevent iOS Safari from auto-zooming when focusing inputs/selects on phones. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

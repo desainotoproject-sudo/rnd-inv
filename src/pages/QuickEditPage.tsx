@@ -10,11 +10,20 @@ import {
   AlertCircle,
   Zap,
   RotateCw,
+  SlidersHorizontal,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,6 +54,19 @@ import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/
 import { toast } from "sonner"
 
 type LocationWithCabinet = Location & { cabinet: Cabinet }
+
+type ColKey = "name" | "sku" | "unit" | "item_type" | "location" | "quantity" | "status" | "changed"
+
+const COLUMNS: { key: ColKey; label: string }[] = [
+  { key: "name", label: "Nama Barang" },
+  { key: "sku", label: "SKU" },
+  { key: "unit", label: "Satuan" },
+  { key: "item_type", label: "Jenis" },
+  { key: "location", label: "Lokasi" },
+  { key: "quantity", label: "Jumlah" },
+  { key: "status", label: "Status" },
+  { key: "changed", label: "Indikator" },
+]
 
 interface FlatRow {
   stock_id: string
@@ -131,6 +153,16 @@ export default function QuickEditPage() {
   const [locations, setLocations] = React.useState<LocationWithCabinet[]>([])
   const [loading, setLoading] = React.useState(true)
   const [search, setSearch] = React.useState("")
+  const [cols, setCols] = React.useState<Record<ColKey, boolean>>({
+    name: true,
+    sku: true,
+    unit: true,
+    item_type: true,
+    location: true,
+    quantity: true,
+    status: true,
+    changed: true,
+  })
 
   const loadData = React.useCallback(async () => {
     setLoading(true)
@@ -467,15 +499,39 @@ export default function QuickEditPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-        <Input
-          placeholder="Cari nama, SKU, atau lokasi... (tahan typo)"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-8"
-        />
+      {/* Search + column filter */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-60 flex-1 max-w-md">
+          <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+          <Input
+            placeholder="Cari nama, SKU, atau lokasi... (tahan typo)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8"
+          />
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <SlidersHorizontal className="size-4" />
+              <span className="hidden sm:inline">Kolom</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel>Kolom ditampilkan</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {COLUMNS.map((c) => (
+              <DropdownMenuCheckboxItem
+                key={c.key}
+                checked={cols[c.key]}
+                onCheckedChange={(v) => setCols((prev) => ({ ...prev, [c.key]: !!v }))}
+                onSelect={(e) => e.preventDefault()}
+              >
+                {c.label}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Table */}
@@ -501,14 +557,14 @@ export default function QuickEditPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-48">Nama Barang</TableHead>
-                  <TableHead className="min-w-32">SKU</TableHead>
-                  <TableHead className="min-w-24">Satuan</TableHead>
-                  <TableHead className="min-w-28">Jenis</TableHead>
-                  <TableHead className="min-w-32">Lokasi</TableHead>
-                  <TableHead className="min-w-24 text-right">Jumlah</TableHead>
-                  <TableHead className="min-w-36">Status</TableHead>
-                  <TableHead className="w-16 text-center">Status</TableHead>
+                  {cols.name && <TableHead className="min-w-48">Nama Barang</TableHead>}
+                  {cols.sku && <TableHead className="min-w-32">SKU</TableHead>}
+                  {cols.unit && <TableHead className="min-w-24">Satuan</TableHead>}
+                  {cols.item_type && <TableHead className="min-w-28">Jenis</TableHead>}
+                  {cols.location && <TableHead className="min-w-32">Lokasi</TableHead>}
+                  {cols.quantity && <TableHead className="min-w-24 text-right">Jumlah</TableHead>}
+                  {cols.status && <TableHead className="min-w-36">Status</TableHead>}
+                  {cols.changed && <TableHead className="w-16 text-center">Status</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -518,112 +574,128 @@ export default function QuickEditPage() {
                     className={row.dirty ? "bg-amber-50/50 dark:bg-amber-950/10" : row.error ? "bg-red-50/50 dark:bg-red-950/10" : ""}
                   >
                     {/* Name */}
-                    <TableCell>
-                      <Input
-                        value={row.name}
-                        onChange={(e) => handleChange(row.stock_id, { name: e.target.value })}
-                        onBlur={() => handleSaveNow(row.stock_id)}
-                        className="h-8 text-sm border-transparent hover:border-input focus-visible:border-input bg-transparent"
-                      />
-                    </TableCell>
+                    {cols.name && (
+                      <TableCell>
+                        <Input
+                          value={row.name}
+                          onChange={(e) => handleChange(row.stock_id, { name: e.target.value })}
+                          onBlur={() => handleSaveNow(row.stock_id)}
+                          className="h-8 text-sm border-transparent hover:border-input focus-visible:border-input bg-transparent"
+                        />
+                      </TableCell>
+                    )}
                     {/* SKU */}
-                    <TableCell>
-                      <Input
-                        value={row.sku}
-                        onChange={(e) => handleChange(row.stock_id, { sku: e.target.value.toUpperCase() })}
-                        onBlur={() => handleSaveNow(row.stock_id)}
-                        placeholder="—"
-                        className="h-8 text-sm font-mono border-transparent hover:border-input focus-visible:border-input bg-transparent"
-                      />
-                    </TableCell>
+                    {cols.sku && (
+                      <TableCell>
+                        <Input
+                          value={row.sku}
+                          onChange={(e) => handleChange(row.stock_id, { sku: e.target.value.toUpperCase() })}
+                          onBlur={() => handleSaveNow(row.stock_id)}
+                          placeholder="—"
+                          className="h-8 text-sm font-mono border-transparent hover:border-input focus-visible:border-input bg-transparent"
+                        />
+                      </TableCell>
+                    )}
                     {/* Unit */}
-                    <TableCell>
-                      <Input
-                        value={row.unit}
-                        onChange={(e) => handleChange(row.stock_id, { unit: e.target.value })}
-                        onBlur={() => handleSaveNow(row.stock_id)}
-                        className="h-8 text-sm border-transparent hover:border-input focus-visible:border-input bg-transparent w-20"
-                      />
-                    </TableCell>
+                    {cols.unit && (
+                      <TableCell>
+                        <Input
+                          value={row.unit}
+                          onChange={(e) => handleChange(row.stock_id, { unit: e.target.value })}
+                          onBlur={() => handleSaveNow(row.stock_id)}
+                          className="h-8 text-sm border-transparent hover:border-input focus-visible:border-input bg-transparent w-20"
+                        />
+                      </TableCell>
+                    )}
                     {/* Item type */}
-                    <TableCell>
-                      <Select
-                        value={row.item_type}
-                        onValueChange={(v) => handleChange(row.stock_id, { item_type: v as ItemType })}
-                      >
-                        <SelectTrigger className="h-8 text-sm w-28 border-transparent hover:border-input bg-transparent">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ITEM_TYPE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
+                    {cols.item_type && (
+                      <TableCell>
+                        <Select
+                          value={row.item_type}
+                          onValueChange={(v) => handleChange(row.stock_id, { item_type: v as ItemType })}
+                        >
+                          <SelectTrigger className="h-8 text-sm w-28 border-transparent hover:border-input bg-transparent">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ITEM_TYPE_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
                     {/* Location */}
-                    <TableCell>
-                      <Select
-                        value={row.location_id}
-                        onValueChange={(v) => handleChange(row.stock_id, { location_id: v })}
-                      >
-                        <SelectTrigger className="h-8 text-sm font-mono w-32 border-transparent hover:border-input bg-transparent">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {locations.map((loc) => (
-                            <SelectItem key={loc.id} value={loc.id}>
-                              {loc.cabinet?.code}{loc.code}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
+                    {cols.location && (
+                      <TableCell>
+                        <Select
+                          value={row.location_id}
+                          onValueChange={(v) => handleChange(row.stock_id, { location_id: v })}
+                        >
+                          <SelectTrigger className="h-8 text-sm font-mono w-32 border-transparent hover:border-input bg-transparent">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {locations.map((loc) => (
+                              <SelectItem key={loc.id} value={loc.id}>
+                                {loc.cabinet?.code}{loc.code}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
                     {/* Quantity */}
-                    <TableCell>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={row.quantity}
-                        onChange={(e) => handleChange(row.stock_id, { quantity: parseInt(e.target.value) || 0 })}
-                        onBlur={() => handleSaveNow(row.stock_id)}
-                        className="h-8 text-sm tabular-nums text-right border-transparent hover:border-input focus-visible:border-input bg-transparent w-20"
-                      />
-                    </TableCell>
+                    {cols.quantity && (
+                      <TableCell>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={row.quantity}
+                          onChange={(e) => handleChange(row.stock_id, { quantity: parseInt(e.target.value) || 0 })}
+                          onBlur={() => handleSaveNow(row.stock_id)}
+                          className="h-8 text-sm tabular-nums text-right border-transparent hover:border-input focus-visible:border-input bg-transparent w-20"
+                        />
+                      </TableCell>
+                    )}
                     {/* Status */}
-                    <TableCell>
-                      <Select
-                        value={row.status}
-                        onValueChange={(v) => handleChange(row.stock_id, { status: v as StockStatus })}
-                      >
-                        <SelectTrigger className="h-8 text-sm w-36 border-transparent hover:border-input bg-transparent">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {STATUS_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
+                    {cols.status && (
+                      <TableCell>
+                        <Select
+                          value={row.status}
+                          onValueChange={(v) => handleChange(row.stock_id, { status: v as StockStatus })}
+                        >
+                          <SelectTrigger className="h-8 text-sm w-36 border-transparent hover:border-input bg-transparent">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {STATUS_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                    )}
                     {/* Save indicator */}
-                    <TableCell className="text-center">
-                      {row.saving ? (
-                        <Loader2 className="size-4 animate-spin text-muted-foreground mx-auto" />
-                      ) : row.saved ? (
-                        <CheckCircle2 className="size-4 text-green-500 mx-auto" />
-                      ) : row.error ? (
-                        <AlertCircle className="size-4 text-destructive mx-auto" />
-                      ) : row.dirty ? (
-                        <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
-                          Diubah
-                        </Badge>
-                      ) : null}
-                    </TableCell>
+                    {cols.changed && (
+                      <TableCell className="text-center">
+                        {row.saving ? (
+                          <Loader2 className="size-4 animate-spin text-muted-foreground mx-auto" />
+                        ) : row.saved ? (
+                          <CheckCircle2 className="size-4 text-green-500 mx-auto" />
+                        ) : row.error ? (
+                          <AlertCircle className="size-4 text-destructive mx-auto" />
+                        ) : row.dirty ? (
+                          <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
+                            Diubah
+                          </Badge>
+                        ) : null}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
