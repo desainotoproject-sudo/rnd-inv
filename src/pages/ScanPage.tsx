@@ -73,15 +73,15 @@ function cameraErrorMessage(err: unknown): string {
   switch (e?.name) {
     case "NotAllowedError":
     case "PermissionDeniedError":
-      return "Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser, lalu tekan Coba Lagi."
+      return 'Izin kamera ditolak. Di iPhone buka: Settings \u2192 Safari \u2192 Camera \u2192 Allow (atau Settings \u2192 [nama situs] \u2192 Camera), lalu ketuk "Aktifkan Kamera".'
     case "NotFoundError":
     case "DevicesNotFoundError":
       return "Kamera tidak ditemukan di perangkat ini."
     case "NotReadableError":
     case "TrackStartError":
-      return "Kamera sedang dipakai aplikasi/aplikasi lain. Tutup aplikasi itu lalu tekan Coba Lagi."
+      return 'Kamera gagal diakses (mungkin dipakai app lain, atau Anda di mode Private/incognito). Tutup app lain lalu ketuk "Coba Lagi".'
     case "OverconstrainedError":
-      return "Kamera tidak mendukung resolusi yang diminta. Coba perangkat/browser lain."
+      return "Kamera tidak mendukung pengaturan yang diminta."
     default:
       return e?.message || "Tidak dapat mengakses kamera."
   }
@@ -95,6 +95,9 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
   const lockTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   // Bumped on every start/stop so an in-flight start can detect it was superseded.
   const genRef = React.useRef(0)
+  // iOS/Safari needs a user gesture (tap) before the camera permission prompt.
+  // First activation is manual; afterwards restarts happen automatically.
+  const startedOnceRef = React.useRef(false)
   // Keep the latest callback without re-triggering the camera start/stop effect.
   const onDecodeRef = React.useRef(onDecode)
   React.useEffect(() => {
@@ -140,62 +143,85 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
     setState("starting")
     setError(null)
     decodeLockRef.current = false
-    let s: Html5Qrcode | null = null
-    try {
-      // `useBarCodeDetectorIfSupported` uses the browser-native BarcodeDetector
-      // (when available) — much faster and better at small / damaged codes.
-      s = new Html5Qrcode("scan-region", {
-        verbose: false,
-        useBarCodeDetectorIfSupported: true,
-      })
-      scannerRef.current = s
-      await s.start(
-        // Request a high-resolution rear camera so small QR codes resolve.
-        { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
-        {
-          fps: 15,
-          // Scan almost the whole viewfinder so a small code anywhere still decodes.
-          qrbox: (viewfinderWidth, viewfinderHeight) => {
-            const min = Math.min(viewfinderWidth, viewfinderHeight)
-            const size = Math.max(160, Math.floor(min * 0.9))
-            return { width: size, height: size }
-          },
-          aspectRatio: 1,
-          disableFlip: false,
-        },
-        (decodedText) => {
-          if (decodeLockRef.current) return
-          decodeLockRef.current = true
-          // Auto-unlock shortly so scanning continues if no drawer opens (e.g. SKU not found).
-          if (lockTimerRef.current) clearTimeout(lockTimerRef.current)
-          lockTimerRef.current = setTimeout(() => {
-            decodeLockRef.current = false
-            lockTimerRef.current = null
-          }, 2000)
-          onDecodeRef.current(decodedText)
-        },
-        () => {
-          /* per-frame decode errors ignored */
-        }
-      )
-      // If this session was superseded while starting (e.g. StrictMode remount),
-      // tear it down so we never keep two camera streams alive.
-      if (genRef.current !== gen || scannerRef.current !== s) {
-        try {
-          if (s.isScanning) await s.stop()
-          s.clear()
-        } catch {
-          /* ignore */
-        }
-        return
-      }
-      setState("scanning")
-    } catch (err) {
-      if (scannerRef.current === s) scannerRef.current = null
-      if (genRef.current !== gen) return // superseded — ignore
-      setState("error")
-      setError(cameraErrorMessage(err))
+
+    // Try several constraint sets from best quality down to the safest, because
+    // iOS Safari (and some Android browsers) reject overly specific constraints.
+    const attempts: MediaTrackConstraints[] = [
+      { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      { facingMode: { ideal: "environment" } },
+      {},
+    ]
+
+    const scanConfig = {
+      fps: 15,
+      // Scan almost the whole viewfinder so a small code anywhere still decodes.
+      qrbox: (viewfinderWidth: number, viewfinderHeight: number) => {
+        const min = Math.min(viewfinderWidth, viewfinderHeight)
+        const size = Math.max(160, Math.floor(min * 0.9))
+        return { width: size, height: size }
+      },
+      disableFlip: false,
     }
+
+    const onSuccess = (decodedText: string) => {
+      if (decodeLockRef.current) return
+      decodeLockRef.current = true
+      // Auto-unlock shortly so scanning continues if no drawer opens (e.g. SKU not found).
+      if (lockTimerRef.current) clearTimeout(lockTimerRef.current)
+      lockTimerRef.current = setTimeout(() => {
+        decodeLockRef.current = false
+        lockTimerRef.current = null
+      }, 2000)
+      onDecodeRef.current(decodedText)
+    }
+
+    let lastErr: unknown = null
+    for (const constraints of attempts) {
+      if (genRef.current !== gen) return
+      let s: Html5Qrcode | null = null
+      try {
+        // `useBarCodeDetectorIfSupported` uses the native BarcodeDetector when
+        // available (ignored safely on iOS, which lacks it).
+        s = new Html5Qrcode("scan-region", {
+          verbose: false,
+          useBarCodeDetectorIfSupported: true,
+        })
+        scannerRef.current = s
+        await s.start(constraints, scanConfig, onSuccess, () => {
+          /* per-frame decode errors ignored */
+        })
+        // If superseded while starting (e.g. StrictMode remount), tear down.
+        if (genRef.current !== gen || scannerRef.current !== s) {
+          try {
+            if (s.isScanning) await s.stop()
+            s.clear()
+          } catch {
+            /* ignore */
+          }
+          return
+        }
+        startedOnceRef.current = true
+        setState("scanning")
+        return
+      } catch (err) {
+        lastErr = err
+        try {
+          if (s?.isScanning) await s!.stop()
+          s?.clear()
+        } catch {
+          /* ignore cleanup of a failed attempt */
+        }
+        if (scannerRef.current === s) scannerRef.current = null
+        if (genRef.current !== gen) return // superseded — ignore
+        // Short pause before trying the next constraint set.
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      }
+    }
+
+    if (genRef.current !== gen) return
+    setState("error")
+    setError(cameraErrorMessage(lastErr))
   }, [])
 
   // The camera starts on its own (shortly delayed so React StrictMode's
@@ -206,10 +232,16 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
       void stopCamera().then(() => setState("idle"))
       return
     }
+    // First activation requires a tap (iOS/Safari only shows the camera
+    // permission prompt after a user gesture). Afterwards it auto-restarts.
+    if (!startedOnceRef.current) {
+      setState("idle")
+      return
+    }
     decodeLockRef.current = false
     const timer = setTimeout(() => {
       void startCamera()
-    }, 250)
+    }, 200)
     return () => {
       clearTimeout(timer)
       void stopCamera()
@@ -223,8 +255,8 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
         {state === "idle" && (
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 text-muted-foreground">
             <Camera className="size-8" />
-            <p className="hidden sm:block text-sm text-center px-6">
-              Arahkan kamera ke QR/barcode SKU barang.
+            <p className="text-sm text-center px-6">
+              Ketuk "Aktifkan Kamera" lalu arahkan ke QR/barcode SKU.
             </p>
           </div>
         )}
