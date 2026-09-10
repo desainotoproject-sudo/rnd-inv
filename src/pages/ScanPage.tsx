@@ -68,12 +68,33 @@ type ScannerProps = {
   active: boolean
 }
 
+function cameraErrorMessage(err: unknown): string {
+  const e = err as { name?: string; message?: string } | null
+  switch (e?.name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+      return "Izin kamera ditolak. Aktifkan izin kamera di pengaturan browser, lalu tekan Coba Lagi."
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+      return "Kamera tidak ditemukan di perangkat ini."
+    case "NotReadableError":
+    case "TrackStartError":
+      return "Kamera sedang dipakai aplikasi/aplikasi lain. Tutup aplikasi itu lalu tekan Coba Lagi."
+    case "OverconstrainedError":
+      return "Kamera tidak mendukung resolusi yang diminta. Coba perangkat/browser lain."
+    default:
+      return e?.message || "Tidak dapat mengakses kamera."
+  }
+}
+
 function CameraScanner({ onDecode, active }: ScannerProps) {
   const scannerRef = React.useRef<Html5Qrcode | null>(null)
   const [state, setState] = React.useState<"idle" | "starting" | "scanning" | "error">("idle")
   const [error, setError] = React.useState<string | null>(null)
   const decodeLockRef = React.useRef(false)
   const lockTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Bumped on every start/stop so an in-flight start can detect it was superseded.
+  const genRef = React.useRef(0)
   // Keep the latest callback without re-triggering the camera start/stop effect.
   const onDecodeRef = React.useRef(onDecode)
   React.useEffect(() => {
@@ -81,6 +102,7 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
   }, [onDecode])
 
   const stopCamera = React.useCallback(async () => {
+    genRef.current += 1 // invalidate any start that is still in flight
     if (lockTimerRef.current) {
       clearTimeout(lockTimerRef.current)
       lockTimerRef.current = null
@@ -99,13 +121,30 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
 
   const startCamera = React.useCallback(async () => {
     if (scannerRef.current) return
+
+    // getUserMedia only works in a secure context (HTTPS or localhost).
+    if (!window.isSecureContext) {
+      setState("error")
+      setError(
+        "Kamera hanya bisa diakses lewat koneksi aman. Buka aplikasi via https:// atau http://localhost (bukan alamat IP/LAN biasa)."
+      )
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setState("error")
+      setError("Browser ini tidak mendukung akses kamera (getUserMedia).")
+      return
+    }
+
+    const gen = ++genRef.current
     setState("starting")
     setError(null)
     decodeLockRef.current = false
+    let s: Html5Qrcode | null = null
     try {
       // `useBarCodeDetectorIfSupported` uses the browser-native BarcodeDetector
       // (when available) — much faster and better at small / damaged codes.
-      const s = new Html5Qrcode("scan-region", {
+      s = new Html5Qrcode("scan-region", {
         verbose: false,
         useBarCodeDetectorIfSupported: true,
       })
@@ -139,11 +178,11 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
           /* per-frame decode errors ignored */
         }
       )
-      // If a newer session superseded this one while starting (e.g. React StrictMode
-      // remount), stop this instance so we don't keep two camera streams alive.
-      if (scannerRef.current !== s) {
+      // If this session was superseded while starting (e.g. StrictMode remount),
+      // tear it down so we never keep two camera streams alive.
+      if (genRef.current !== gen || scannerRef.current !== s) {
         try {
-          await s.stop()
+          if (s.isScanning) await s.stop()
           s.clear()
         } catch {
           /* ignore */
@@ -152,22 +191,27 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
       }
       setState("scanning")
     } catch (err) {
-      scannerRef.current = null
+      if (scannerRef.current === s) scannerRef.current = null
+      if (genRef.current !== gen) return // superseded — ignore
       setState("error")
-      setError((err as Error)?.message || "Tidak dapat mengakses kamera.")
+      setError(cameraErrorMessage(err))
     }
   }, [])
 
-  // The camera starts on its own and restarts after every save,
-  // so the user never needs to press a "start camera" button.
+  // The camera starts on its own (shortly delayed so React StrictMode's
+  // double-mount can't fire two overlapping start() calls) and restarts after
+  // every save. A short delay is also harmless for the browser's permission prompt.
   React.useEffect(() => {
     if (!active) {
       void stopCamera().then(() => setState("idle"))
       return
     }
     decodeLockRef.current = false
-    void startCamera()
+    const timer = setTimeout(() => {
+      void startCamera()
+    }, 250)
     return () => {
+      clearTimeout(timer)
       void stopCamera()
     }
   }, [active, startCamera, stopCamera])
@@ -200,9 +244,10 @@ function CameraScanner({ onDecode, active }: ScannerProps) {
         )}
       </div>
 
-      {state === "error" && (
+      {state !== "scanning" && state !== "starting" && (
         <Button variant="outline" className="w-full max-w-sm mx-auto flex" onClick={() => void startCamera()}>
-          <RotateCw className="size-4" /> Coba Lagi
+          {state === "error" ? <RotateCw className="size-4" /> : <Camera className="size-4" />}
+          {state === "error" ? "Coba Lagi" : "Aktifkan Kamera"}
         </Button>
       )}
     </div>
