@@ -1,11 +1,7 @@
--- ============================================================
 -- RND Inventory - CONSOLIDATED SETUP (all migrations, in order)
--- Jalankan seluruh file ini di SQL Editor project Supabase BARU.
--- ============================================================
+-- Run in the NEW Supabase project's SQL Editor.
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721045512_create_rnd_inventory_foundation.sql
--- ------------------------------------------------------------
 /*
 # RND Inventory Management System — Phase 1 Foundation
 
@@ -304,9 +300,7 @@ CREATE TRIGGER trg_stock_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721045540_add_rnd_user_management_functions.sql
--- ------------------------------------------------------------
 /*
 # Add Admin Functions for RND User Management
 
@@ -372,9 +366,7 @@ $$;
 GRANT EXECUTE ON FUNCTION create_user_by_rnd TO authenticated;
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721050815_fix_profiles_rls_recursion.sql
--- ------------------------------------------------------------
 /*
 # Fix profiles RLS policies to prevent recursion
 
@@ -439,9 +431,7 @@ CREATE POLICY "rnd_delete_profiles" ON profiles
   );
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721050853_simplify_profiles_rls.sql
--- ------------------------------------------------------------
 /*
 # Simplify profiles RLS - avoid all self-referential subqueries
 
@@ -488,9 +478,7 @@ CREATE POLICY "auth_update_own_profile" ON profiles
 -- Update to is_active and role is also service-role only
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721051128_fix_all_rls_with_security_definer.sql
--- ------------------------------------------------------------
 /*
 # Fix RLS policies for all tables to prevent recursion
 
@@ -626,9 +614,7 @@ CREATE POLICY "rnd_delete_stock" ON stock_entries
   USING (get_current_user_role() = 'rnd');
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721052827_make_sku_category_nullable.sql
--- ------------------------------------------------------------
 /*
 # Make SKU and category optional on items
 
@@ -646,9 +632,7 @@ ALTER TABLE items ALTER COLUMN sku DROP NOT NULL;
 ALTER TABLE items ALTER COLUMN category DROP NOT NULL;
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260721054541_create_transactions_and_notifications.sql
--- ------------------------------------------------------------
 /*
 # RND Inventory — Tahap 2-4: Transactions, Notifications & History
 
@@ -820,9 +804,7 @@ CREATE TRIGGER trg_transactions_updated_at
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260805040729_create_admin_loans_tables.sql
--- ------------------------------------------------------------
 /*
 # Create admin loans tables for direct RND pinjam/titip transactions
 
@@ -923,9 +905,7 @@ CREATE INDEX IF NOT EXISTS idx_admin_loan_items_loan_id ON admin_loan_items(admi
 CREATE INDEX IF NOT EXISTS idx_admin_loans_created_by ON admin_loans(created_by);
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260908073057_fix_admin_loan_items_fk_cascade.sql
--- ------------------------------------------------------------
 /*
 # Fix admin_loan_items foreign key to allow item deletion
 
@@ -963,9 +943,7 @@ ALTER TABLE admin_loan_items
   FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE CASCADE;
 
 
--- ------------------------------------------------------------
 -- MIGRATION: 20260910090000_create_loan_requests.sql
--- ------------------------------------------------------------
 /*
 # Public Loan Requests (guest, tanpa login)
 
@@ -1150,4 +1128,46 @@ DROP TRIGGER IF EXISTS trg_notify_rnd_new_loan_request ON loan_requests;
 CREATE TRIGGER trg_notify_rnd_new_loan_request
   AFTER INSERT ON loan_requests
   FOR EACH ROW EXECUTE FUNCTION notify_rnd_new_loan_request();
+
+
+-- MIGRATION: 20260910100000_relax_public_available_items.sql
+/*
+# Relax public availability rule + fix inconsistent statuses
+
+Previously the public page required stock status = 'tersedia'. Items that had
+quantity > 0 but status left as 'kosong' (from manual edits) were hidden.
+
+Changes:
+1) Fix existing inconsistent rows: quantity > 0 but status 'kosong' -> 'tersedia'.
+2) Redefine public_available_items() to treat stock as available when
+   quantity > 0 and not borrowed/pending ('dipinjam' / 'menunggu_approval').
+3) Reload PostgREST schema cache.
+*/
+
+-- 1) Repair inconsistent data (only flips kosong -> tersedia when qty > 0)
+UPDATE stock_entries
+SET status = 'tersedia', updated_at = now()
+WHERE quantity > 0 AND status = 'kosong';
+
+-- 2) Availability rule: any positive, non-borrowed stock counts as available
+CREATE OR REPLACE FUNCTION public_available_items()
+RETURNS TABLE (
+  item_id uuid, name text, sku text, category text, unit text,
+  item_type item_type, available integer
+)
+LANGUAGE sql SECURITY DEFINER SET search_path = public AS $$
+  SELECT i.id, i.name, i.sku, i.category, i.unit, i.item_type, sum(s.quantity)::int AS available
+  FROM items i
+  JOIN stock_entries s ON s.item_id = i.id
+  WHERE s.quantity > 0
+    AND s.status NOT IN ('dipinjam', 'menunggu_approval')
+  GROUP BY i.id, i.name, i.sku, i.category, i.unit, i.item_type
+  HAVING sum(s.quantity) > 0
+  ORDER BY i.name;
+$$;
+
+GRANT EXECUTE ON FUNCTION public_available_items() TO anon, authenticated;
+
+-- 3) Reload PostgREST schema cache
+NOTIFY pgrst, 'reload schema';
 

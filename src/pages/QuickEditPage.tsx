@@ -350,7 +350,21 @@ export default function QuickEditPage() {
   }, [rows, locations])
 
   const handleChange = (stock_id: string, patch: Partial<FlatRow>) => {
-    updateRow(stock_id, patch)
+    let nextPatch = patch
+    if (patch.quantity !== undefined) {
+      // Keep status consistent with the quantity: > 0 => tersedia, 0 => kosong.
+      // Only flips between tersedia/kosong (loan-related statuses are preserved).
+      const current = rows.find((r) => r.stock_id === stock_id)
+      const target: StockStatus = patch.quantity > 0 ? "tersedia" : "kosong"
+      if (
+        current &&
+        (current.status === "tersedia" || current.status === "kosong") &&
+        current.status !== target
+      ) {
+        nextPatch = { ...patch, status: target }
+      }
+    }
+    updateRow(stock_id, nextPatch)
     scheduleSave(stock_id)
   }
 
