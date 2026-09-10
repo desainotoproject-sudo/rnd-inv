@@ -53,6 +53,18 @@ const STATUS_LABEL: Record<string, { label: string; className: string }> = {
   selesai: { label: "Selesai", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
 }
 
+/** Turn low-level PostgREST errors into actionable messages. */
+function friendlyError(msg: string): string {
+  if (/could not find the function|does not exist|schema cache|PGRST202/i.test(msg)) {
+    return (
+      "Fitur publik belum aktif di server. Jalankan migrasi " +
+      "'20260910090000_create_loan_requests.sql' di Supabase SQL Editor, " +
+      "lalu reload schema PostgREST (Notification: NOTIFY pgrst, 'reload schema';)."
+    )
+  }
+  return msg
+}
+
 export default function PublicRequestPage() {
   const [items, setItems] = React.useState<AvailableItem[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -77,7 +89,7 @@ export default function PublicRequestPage() {
     setLoading(true)
     setError(null)
     const { data, error } = await supabase.rpc("public_available_items")
-    if (error) setError(error.message)
+    if (error) setError(friendlyError(error.message))
     else setItems((data ?? []) as AvailableItem[])
     setLoading(false)
   }, [])
@@ -129,7 +141,7 @@ export default function PublicRequestPage() {
       setResultCode(String(data))
       void load()
     } catch (e) {
-      setFormError((e as Error).message)
+      setFormError(friendlyError((e as Error).message))
     }
     setSubmitting(false)
   }
@@ -142,7 +154,7 @@ export default function PublicRequestPage() {
     setCheckResult(null)
     const { data, error } = await supabase.rpc("public_loan_request_status", { p_code: code })
     if (error) {
-      setCheckError(error.message)
+      setCheckError(friendlyError(error.message))
     } else {
       const row = Array.isArray(data) ? (data[0] as RequestStatus | undefined) : (data as RequestStatus | null)
       if (!row) setCheckError("Kode tidak ditemukan.")
