@@ -1,5 +1,5 @@
 /* RND Inventory — service worker (network-first with cache fallback) */
-const CACHE = "rnd-inv-shell-v4"
+const CACHE = "rnd-inv-shell-v5"
 
 self.addEventListener("install", () => {
   self.skipWaiting()

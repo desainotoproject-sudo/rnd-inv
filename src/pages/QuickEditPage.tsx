@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useInfiniteRows } from "@/hooks/use-infinite-rows"
 import { supabase } from "@/lib/supabase"
 import type { Item, ItemType, Location, Cabinet, StockEntry, StockStatus } from "@/lib/database.types"
 import {
@@ -204,6 +205,8 @@ export default function QuickEditPage() {
       .sort((a, b) => b.score - a.score)
       .map((x) => x.row)
   }, [rows, search])
+
+  const { shown, hasMore, sentinelRef } = useInfiniteRows(filtered, 15)
 
   const dirtyCount = rows.filter((r) => r.dirty).length
 
@@ -509,7 +512,7 @@ export default function QuickEditPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((row) => (
+                {shown.map((row) => (
                   <TableRow
                     key={row.stock_id}
                     className={row.dirty ? "bg-amber-50/50 dark:bg-amber-950/10" : row.error ? "bg-red-50/50 dark:bg-red-950/10" : ""}
@@ -626,6 +629,18 @@ export default function QuickEditPage() {
               </TableBody>
             </Table>
           </div>
+          {!loading && filtered.length > 0 && (
+            <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+              {hasMore ? (
+                <span className="inline-flex items-center gap-2">
+                  <span className="size-3.5 animate-spin rounded-full border-2 border-current opacity-40 border-t-transparent" />
+                  <span className="hidden sm:inline">Memuat…</span>
+                </span>
+              ) : (
+                <span className="hidden sm:inline">Semua {filtered.length} baris</span>
+              )}
+            </div>
+          )}
         </div>
       )}
 
